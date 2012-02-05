@@ -1,0 +1,1 @@
+?package(gemrb):command="gemrb" needs="X11" section="Games/Adventure" title="GemRB"

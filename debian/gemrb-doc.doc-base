@@ -1,0 +1,10 @@
+Document: gemrb-doc
+Title: Debian GemRB Documentation
+Abstract: This manual describes the internals
+ of GemRB, the structures of the engine files
+ and how to extend the engine to create game
+ modifications.
+Section: Games/Adventure
+
+Format: text
+Files: /usr/share/doc/gemrb/en/

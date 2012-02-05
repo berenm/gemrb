@@ -1,0 +1,10 @@
+[Desktop Entry]
+Version=1.0
+Name=Baldur's Gate 2 - GemRB
+GenericName=Baldur's Gate 2
+Comment=Baldur's Gate 2 game running with GemRB
+Type=Application
+Icon=baldurs-gate-2
+Terminal=true
+Exec=baldurs-gate-2
+Categories=Game;RolePlaying;Emulator;

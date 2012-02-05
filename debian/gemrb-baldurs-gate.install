@@ -1,0 +1,6 @@
+usr/games/baldurs-gate
+debian/baldurs-gate.cfg etc/gemrb/
+usr/share/man/man6/baldurs-gate.6.gz
+debian/baldurs-gate.desktop usr/share/applications/
+usr/share/icons/hicolor/scalable/apps/baldurs-gate.svg
+usr/share/pixmaps/baldurs-gate.png

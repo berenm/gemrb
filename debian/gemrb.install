@@ -1,0 +1,6 @@
+usr/bin/gemrb usr/games/
+debian/gemrb.cfg etc/gemrb/
+usr/share/man/man6/gemrb.6
+usr/share/applications/gemrb.desktop
+usr/share/icons/hicolor/scalable/apps/gemrb.svg
+usr/share/pixmaps/gemrb.png
