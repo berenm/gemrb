@@ -1,3 +1,32 @@
+gemrb (0.6.6-1) unstable; urgency=low
+  * New features:
+    - Aura pollution and cleansing, casting interruption
+    - Formation rotation
+    - Bounty encounters
+    - npclevel.2da support
+    - Initial mac bundle support
+    - Fatigue
+    - Backstab on condition (like in ToBEx)
+
+  * Improved features:
+    - Effects, triggers, actions
+    - Keyboard shortcuts (F1-F12), touchscreen ui, scrolling
+    - Hitpoint gain, thieving skill boni
+    - Combat, spellcasting, iwd sounds
+    - PST inventory, PST spells
+    - Bugfixes
+
+  * Applied patches:
+    - Manpage typo fixes from c-korn #3377098
+    - PST spell learning fix from Viktor Novotný
+    - Touchscreen fix from Beholder
+    - Removed GameOnCD support and configuration
+
+  [ Beren Minor ]
+  * Imported GemRB upstream version 0.6.6.
+
+ -- Beren Minor <beren.minor+debian@gmail.com>  Sun, 05 Feb 2012 21:43:13 +0100
+
 gemrb (0.6.5-1) unstable; urgency=low
 
   * Initial release (Closes: #477376)
