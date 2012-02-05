@@ -111,7 +111,7 @@ TooltipDelay=500
 
 #CaseSensitive=1
 
-#GameOnCD=0
+#SlowBIFs=0
 
 #####################################################
 #  GUI Parameters                                   #
@@ -157,7 +157,7 @@ GUIEnhancements = 1
 #                                                   #
 #  These are the paths where the Game you want to   #
 #  play is installed.                               #
-#  Enter the full path to the directory.             #
+#  Enter the full path to the directory.            #
 #####################################################
 
 GamePath=/mnt/windows/Programmi/Black Isle/BGII - SoA/
@@ -192,9 +192,7 @@ CachePath=./Cache/
 #SavePath=/mnt/windows/Programmi/Black Isle/BGII - SoA/
 
 ###### HERE BE DRAGONS #############################
-###### HERE BE DRAGONS #############################
-###### HERE BE DRAGONS #############################
-# You shouldn't need to change anything below this point.
+# You shouldn't need to change any paths below this point.
 
 #####################################################
 #  GemRB Path [String]                              #
@@ -272,6 +270,19 @@ CachePath=./Cache/
 
 #Adds a gutter around the screen for scrolling
 #TouchScrollAreas=1
+
+#####################################################
+#  Touch Gesture Input Parameters                   #
+#  Requires SDL 1.3 or later			    #
+#  All "NumFing" settings must be > 1 and < 5       #
+#  NumFingScroll and NumFingKboard cannot be equal  #
+#####################################################
+
+#NumFingScroll=2
+
+#NumFingKboard=3
+
+#NumFingInfo=2
 
 #####################################################
 #  END                                              #

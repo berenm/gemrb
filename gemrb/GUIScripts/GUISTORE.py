@@ -28,6 +28,7 @@ import GUICommonWindows
 from GUIDefines import *
 from ie_stats import *
 from ie_slots import *
+from ie_sounds import *
 
 StoreWindow = None
 MessageWindow = None
@@ -60,6 +61,7 @@ if GUICommon.GameIsIWD2():
 else:
 	ItemButtonCount = 4
 RepModTable = None
+SpellTable = None
 PreviousPC = 0
 BarteringPC = 0
 
@@ -130,7 +132,8 @@ def OpenStoreWindow ():
 	global StoreWindow, ActionWindow, PortraitWindow
 	global OldPortraitWindow
 	global store_funcs
-	global Inventory, RepModTable, BarteringPC
+	global SpellTable, RepModTable
+	global Inventory, BarteringPC
 
 	#these are function pointers, not strings
 	#can't put this in global init, doh!
@@ -140,6 +143,7 @@ def OpenStoreWindow ():
 	OpenStoreRumourWindow,OpenStoreRentWindow )
 
 	RepModTable = GemRB.LoadTable ("repmodst")
+	SpellTable = GemRB.LoadTable ("storespl", 1)
 
 	GemRB.HideGUI ()
 	GUICommon.GameWindow.SetVisible(WINDOW_INVISIBLE) #removing the game control screen
@@ -749,6 +753,7 @@ def SellPressed ():
 			GemRB.ChangeStoreItem (pc, inventory_slots[Slot], SHOP_SELL)
 
 	GemRB.GameSetPartyGold (GemRB.GameGetPartyGold ()+SellSum)
+	GemRB.PlaySound(DEF_SOLD)
 	UpdateStoreShoppingWindow ()
 	return
 
@@ -1065,6 +1070,7 @@ def StealPressed ():
 	#if skill>random(100)+difficulty - success
 	if GUICommon.CheckStat100 (pc, IE_PICKPOCKET, Store['StealFailure']):
 		GemRB.ChangeStoreItem (pc, LeftIndex, SHOP_STEAL)
+		GemRB.PlaySound(DEF_STOLEN)
 		UpdateStoreStealWindow ()
 	else:
 		GemRB.StealFailed ()
@@ -1297,12 +1303,12 @@ def DonateGold ():
 	GemRB.GameSetPartyGold (GemRB.GameGetPartyGold ()-donation)
 	if GemRB.IncreaseReputation (donation):
 		TextArea.Append (10468, -1)
-		GemRB.PlaySound ("act_03")
+		GemRB.PlaySound (DEF_DONATE1)
 		UpdateStoreDonateWindow ()
 		return
 
 	TextArea.Append (10469, -1)
-	GemRB.PlaySound ("act_03e")
+	GemRB.PlaySound (DEF_DONATE2)
 	UpdateStoreDonateWindow ()
 	return
 
@@ -1393,6 +1399,13 @@ def BuyHeal ():
 	GemRB.GameSetPartyGold (gold-Cure['Price'])
 	pc = GemRB.GameGetSelectedPCSingle ()
 	GemRB.ApplySpell (pc, Cure['CureResRef'], pc)
+	if SpellTable:
+		sound = SpellTable.GetValue(Cure['CureResRef'], "SOUND")
+	else:
+		#if there is no table, simply use the spell's own completion sound
+		Spell = GemRB.GetSpell(Cure['CureResRef'])
+		sound = Spell['Completion']
+	GemRB.PlaySound (sound)
 	UpdateStoreHealWindow ()
 	return
 
@@ -1439,7 +1452,7 @@ def GulpDrink ():
 	GemRB.SetPlayerStat (pc, IE_INTOXICATION, intox+Drink['Strength'])
 	text = GemRB.GetRumour (Drink['Strength'], Store['TavernRumour'])
 	TextArea.Append (text, -1)
-	GemRB.PlaySound ("gam_07")
+	GemRB.PlaySound (DEF_DRUNK)
 	UpdateStoreRumourWindow ()
 	return
 

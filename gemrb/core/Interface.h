@@ -132,6 +132,7 @@ struct TimeStruct {
 	unsigned int turn_sec;
 	unsigned int round_size; // in ticks
 	unsigned int rounds_per_turn;
+	unsigned int attack_round_size;
 };
 
 struct SpellDescType {
@@ -204,6 +205,7 @@ public:
 #define EF_CREATEMAZE    1024     //call the maze generator
 #define EF_RESETTARGET   2048     //reset the mouse cursor
 #define EF_TARGETMODE    4096     //update the mouse cursor
+#define EF_TEXTSCREEN    8192     //start a textscreen
 
 //autopause
 #define AP_UNUSABLE      0
@@ -216,6 +218,7 @@ public:
 #define AP_ENEMY         7
 #define AP_TRAP          8
 #define AP_SPELLCAST     9
+#define AP_GENERIC       10  //needed for Android stuff
 
 /** ea relations (derivated from 2 actor's EA value) */
 #define EAR_FRIEND  0
@@ -435,7 +438,7 @@ public:
 	/** Adjust the scrolling of the control (if applicable) */
 	int AdjustScrolling(unsigned short WindowIndex, unsigned short ControlIndex, short x, short y);
 	/** Set the Tooltip text of a Control */
-	int SetTooltip(unsigned short WindowIndex, unsigned short ControlIndex, const char * string);
+	int SetTooltip(unsigned short WindowIndex, unsigned short ControlIndex, const char * string, int Function = 0);
 	/** sets tooltip to be displayed */
 	void DisplayTooltip(int x, int y, Control* ctrl);
 	/** Actually draws tooltip on the screen. Called from SDLVideoDriver */
@@ -676,7 +679,7 @@ public:
 	/** translates a stat symbol to numeric value */
 	ieDword TranslateStat(const char *stat_name);
 	/** resolves a stat bonus based on multiple stats */
-	ieDword ResolveStatBonus(Actor *actor, const char *tablename);
+	int ResolveStatBonus(Actor *actor, const char *tablename, ieDword flags = 0, int value = 0);
 	/** Opens CD prompt window and waits for the specified disc */
 	void WaitForDisc(int disc_number, const char* path);
 	/** Returns the music playlist corresponding to the provided type */
@@ -752,8 +755,9 @@ public:
 	unsigned int TooltipDelay;
 	int IgnoreOriginalINI;
 	unsigned int FogOfWar;
-	bool CaseSensitive, GameOnCD, SkipIntroVideos, DrawFPS;
+	bool CaseSensitive, SlowBIFs, SkipIntroVideos, DrawFPS;
 	bool TouchScrollAreas, UseSoftKeyboard;
+	unsigned short NumFingScroll, NumFingKboard, NumFingInfo;
 	bool GUIEnhancements;
 	bool KeepCache;
 	bool MultipleQuickSaves;

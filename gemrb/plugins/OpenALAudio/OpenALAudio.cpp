@@ -87,8 +87,19 @@ void AudioStream::ClearProcessedBuffers()
 		checkALError("Failed to unqueue buffers", "WARNING");
 
 		if (delete_buffers) {
+#ifdef __APPLE__ // mac os x and iOS
+			/* FIXME: hackish
+				somebody with more knowledge than me could perhapps figure out
+				why Apple's implementation of alSourceUnqueueBuffers seems to delay (threading thing?)
+				and possible how better to deal with this.
+			*/
+			do{
+				alDeleteBuffers(processed, b);
+			}while(alGetError() != AL_NO_ERROR);
+#else
 			alDeleteBuffers(processed, b);
 			checkALError("Failed to delete buffers", "WARNING");
+#endif
 		}
 
 		delete[] b;
@@ -230,9 +241,8 @@ OpenALAudioDriver::~OpenALAudioDriver(void)
 		alcCloseDevice (device);
 	}
 	alutContext = NULL;
-	SDL_mutexP(musicMutex);
-	SDL_KillThread(musicThread);
-	SDL_mutexV(musicMutex);
+	stayAlive = false;
+	SDL_WaitThread(musicThread, NULL);
 
 	SDL_DestroyMutex(musicMutex);
 	musicMutex = NULL;
@@ -549,6 +559,8 @@ int OpenALAudioDriver::CreateStream(Holder<SoundMgr> newMusic)
 		MusicPlaying = false;
 	}
 
+	checkALError("Uncaught AL error.", "WARNING"); // clear any previous errors
+
 	if (MusicBuffer[0] == 0) {
 		alGenBuffers( MUSICBUFFERS, MusicBuffer );
 		if (checkALError("Unable to create music buffers", "ERROR")) {
@@ -630,6 +642,7 @@ int OpenALAudioDriver::SetupNewStream( ieWord x, ieWord y, ieWord z,
 	}
 	if (stream == -1) return -1;
 
+	checkALError("Uncaught AL error.", "WARNING"); // clear any previous errors
 	ALuint source;
 	alGenSources(1, &source);
 	if (checkALError("Unable to create new source", "ERROR")) {

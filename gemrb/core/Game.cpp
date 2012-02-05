@@ -98,11 +98,40 @@ Game::Game(void) : Scriptable( ST_GLOBAL )
 		}
 	}
 
+	//loading npc starting levels
+	ieResRef tn;
+	if (Expansion == 5) { // tob is special
+		strncpy(tn, "npclvl25", sizeof(ieResRef));
+	} else {
+		strncpy(tn, "npclevel", sizeof(ieResRef));
+	}
+	if (table.load(tn)) {
+		int cols = table->GetColumnCount();
+		int rows = table->GetRowCount();
+		int i, j;
+		npclevels.reserve(cols*rows);
+		for (i = 0; i < rows; i++) {
+			npclevels.push_back (std::vector<const char *>());
+			for(j = -1; j < cols; j++) {
+				char *ref = new char[9];
+				if (j == -1) {
+					strncpy(ref, table->GetRowName(i), sizeof(ieResRef));
+					npclevels[i].push_back (ref);
+				} else {
+					strncpy(ref, table->QueryField(i, j), sizeof(ieResRef));
+					npclevels[i].push_back (ref);
+				}
+			}
+		}
+	}
+
 	interval = 1000/AI_UPDATE_TIME;
 	hasInfra = false;
 	familiarBlock = false;
 	//FIXME:i'm not sure in this...
 	NoInterrupt();
+	bntchnc = NULL;
+	bntrows = -1;
 }
 
 Game::~Game(void)
@@ -149,6 +178,11 @@ Game::~Game(void)
 	i=planepositions.size();
 	while(i--) {
 		free (planepositions[i]);
+	}
+
+	i = npclevels.size();
+	while (i--) {
+		npclevels[i].clear();
 	}
 }
 
@@ -790,7 +824,9 @@ int Game::LoadMap(const char* ResRef, bool loadscreen)
 	}
 	for (i = 0; i < NPCs.size(); i++) {
 		if (stricmp( NPCs[i]->Area, ResRef ) == 0) {
-			newMap->AddActor( NPCs[i] );
+			if (!CheckForReplacementActor(i)) {
+				newMap->AddActor( NPCs[i] );
+			} // when it happens, it will be handled by the loop limit reevaluation
 		}
 	}
 	if (hide) {
@@ -802,6 +838,38 @@ failedload:
 		core->UnhideGCWindow();
 	core->LoadProgress(100);
 	return -1;
+}
+
+// check if the actor is in npclevel.2da and replace accordingly
+bool Game::CheckForReplacementActor(int i) {
+	Actor* act = NPCs[i];
+	ieDword level = GetPartyLevel(false) / GetPartySize(false);
+	if (! npclevels.empty() && !(act->Modified[IE_MC_FLAGS]&MC_BEENINPARTY) && !(act->Modified[IE_STATE_ID]&STATE_DEAD) && act->GetXPLevel(false) < level) {
+		ieResRef newcre = "****"; // default table value
+		std::vector<std::vector<const char *> >::iterator it;
+		for (it = npclevels.begin(); it != npclevels.end(); it++) {
+			if (!stricmp((*it)[0], act->GetScriptName())) {
+				strncpy(newcre, (*it)[level-2], sizeof(ieResRef));
+				break;
+			}
+		}
+
+		if (stricmp(newcre, "****")) {
+			int pos = gamedata->LoadCreature(newcre, 0, false, act->version);
+			if (pos < 0) {
+				error("Game::CheckForReplacementActor", "LoadCreature failed: pos is negative!\n");
+			} else {
+				Actor *newact = GetNPC(pos);
+				if (!newact) {
+					error("Game::CheckForReplacementActor", "GetNPC failed: cannot find act!\n");
+				} else {
+					DelNPC(InStore(act));
+					return true;
+				}
+			}
+		}
+	}
+	return false;
 }
 
 int Game::AddNPC(Actor* npc)
@@ -882,12 +950,10 @@ bool Game::AddJournalEntry(ieStrRef strref, int Section, int Group)
 			je->Section = (ieByte) Section;
 			je->Group = (ieByte) Group;
 			ieDword chapter = 0;
-			locals->Lookup("CHAPTER", chapter);
-			if (core->HasFeature(GF_NO_NEW_VARIABLES)) {
-				je->Chapter = 0;
-			} else {
-				je->Chapter = (ieByte) chapter;
+			if (!core->HasFeature(GF_NO_NEW_VARIABLES)) {
+				locals->Lookup("CHAPTER", chapter);
 			}
+			je->Chapter = (ieByte) chapter;
 			je->GameTime = GameTime;
 			return true;
 		}
@@ -895,12 +961,10 @@ bool Game::AddJournalEntry(ieStrRef strref, int Section, int Group)
 	je = new GAMJournalEntry;
 	je->GameTime = GameTime;
 	ieDword chapter = 0;
-	locals->Lookup("CHAPTER", chapter);
-	if (core->HasFeature(GF_NO_NEW_VARIABLES)) {
-		je->Chapter = 0;
-	} else {
-		je->Chapter = (ieByte) chapter;
+	if (!core->HasFeature(GF_NO_NEW_VARIABLES)) {
+		locals->Lookup("CHAPTER", chapter);
 	}
+	je->Chapter = (ieByte) chapter;
 	je->unknown09 = 0;
 	je->Section = (ieByte) Section;
 	je->Group = (ieByte) Group;
@@ -1063,9 +1127,9 @@ void Game::ShareXP(int xp, int flags)
 	}
 
 	if (xp>0) {
-		displaymsg->DisplayConstantStringValue( STR_GOTXP, 0xbcefbc, (ieDword) xp); //you have gained ... xp
+		displaymsg->DisplayConstantStringValue( STR_GOTXP, DMC_BG2XPGREEN, (ieDword) xp); //you have gained ... xp
 	} else {
-		displaymsg->DisplayConstantStringValue( STR_LOSTXP, 0xbcefbc, (ieDword) -xp); //you have lost ... xp
+		displaymsg->DisplayConstantStringValue( STR_LOSTXP, DMC_BG2XPGREEN, (ieDword) -xp); //you have lost ... xp
 	}
 	for (unsigned int i=0; i<PCs.size(); i++) {
 		if (PCs[i]->GetStat(IE_STATE_ID)&STATE_DEAD) {
@@ -1155,9 +1219,9 @@ void Game::SetReputation(ieDword r)
 	if (r<10) r=10;
 	else if (r>200) r=200;
 	if (Reputation>r) {
-		displaymsg->DisplayConstantStringValue(STR_LOSTREP,0xc0c000,(Reputation-r)/10);
+		displaymsg->DisplayConstantStringValue(STR_LOSTREP, DMC_GOLD, (Reputation-r)/10);
 	} else if (Reputation<r) {
-		displaymsg->DisplayConstantStringValue(STR_GOTREP,0xc0c000,(r-Reputation)/10);
+		displaymsg->DisplayConstantStringValue(STR_GOTREP, DMC_GOLD, (r-Reputation)/10);
 	}
 	Reputation = r;
 	for (unsigned int i=0; i<PCs.size(); i++) {
@@ -1187,9 +1251,9 @@ void Game::AddGold(ieDword add)
 	old = PartyGold;
 	PartyGold += add;
 	if (old<PartyGold) {
-		displaymsg->DisplayConstantStringValue( STR_GOTGOLD, 0xc0c000, PartyGold-old);
+		displaymsg->DisplayConstantStringValue( STR_GOTGOLD, DMC_GOLD, PartyGold-old);
 	} else {
-		displaymsg->DisplayConstantStringValue( STR_LOSTGOLD, 0xc0c000, old-PartyGold);
+		displaymsg->DisplayConstantStringValue( STR_LOSTGOLD, DMC_GOLD, old-PartyGold);
 	}
 }
 
@@ -1417,7 +1481,7 @@ void Game::RestParty(int checks, int dream, int hp)
 	if (!(checks&REST_NOSCATTER) ) {
 		if (!EveryoneNearPoint( area, leader->Pos, 0 ) ) {
 			//party too scattered
-			displaymsg->DisplayConstantString( STR_SCATTERED, 0xff0000 );
+			displaymsg->DisplayConstantString( STR_SCATTERED, DMC_RED );
 			return;
 		}
 	}
@@ -1425,12 +1489,12 @@ void Game::RestParty(int checks, int dream, int hp)
 	if (!(checks&REST_NOCRITTER) ) {
 		//don't allow resting while in combat
 		if (AnyPCInCombat()) {
-			displaymsg->DisplayConstantString( STR_CANTRESTMONS, 0xff0000 );
+			displaymsg->DisplayConstantString( STR_CANTRESTMONS, DMC_RED );
 			return;
 		}
 		//don't allow resting if hostiles are nearby
 		if (area->AnyEnemyNearPoint(leader->Pos)) {
-			displaymsg->DisplayConstantString( STR_CANTRESTMONS, 0xff0000 );
+			displaymsg->DisplayConstantString( STR_CANTRESTMONS, DMC_RED );
 			return;
 		}
 	}
@@ -1441,13 +1505,13 @@ void Game::RestParty(int checks, int dream, int hp)
 	if (!(checks&REST_NOAREA) ) {
 		//you cannot rest here
 		if (area->AreaFlags&1) {
-			displaymsg->DisplayConstantString( STR_MAYNOTREST, 0xff0000 );
+			displaymsg->DisplayConstantString( STR_MAYNOTREST, DMC_RED );
 			return;
 		}
 		//you may not rest here, find an inn
 		if (!(area->AreaType&(AT_OUTDOOR|AT_FOREST|AT_DUNGEON|AT_CAN_REST) ))
 		{
-			displaymsg->DisplayConstantString( STR_MAYNOTREST, 0xff0000 );
+			displaymsg->DisplayConstantString( STR_MAYNOTREST, DMC_RED );
 			return;
 		}
 		//area encounters
@@ -1517,7 +1581,7 @@ void Game::RestParty(int checks, int dream, int hp)
 
 	core->GetTokenDictionary()->SetAtCopy("DURATION", tmpstr);
 	core->FreeString(tmpstr);
-	displaymsg->DisplayString(restindex, 0xffffff, 0);
+	displaymsg->DisplayString(restindex, DMC_WHITE, 0);
 }
 
 //timestop effect
@@ -1763,7 +1827,33 @@ ieByte *Game::AllocateMazeData()
 	return mazedata;
 }
 
-bool Game::IsTimestopActive()
+bool Game::IsTimestopActive() const
 {
 	return timestop_end > GameTime;
+}
+
+bool Game::RandomEncounter(ieResRef &BaseArea)
+{
+	displaymsg->DisplayConstantString(STR_AMBUSH, DMC_BG2XPGREEN);
+
+	if (bntrows<0) {
+		AutoTable table;
+
+	        if (table.load("bntychnc")) {
+			bntrows = table->GetRowCount();
+			bntchnc = (int *) calloc(sizeof(int),bntrows);
+			for(int i = 0; i<bntrows; i++) {
+				bntchnc[i] = atoi(table->QueryField(i, 0));
+			}
+		} else {
+			bntrows = 0;
+		}
+	}
+
+	int rep = Reputation/10;
+	if (rep>=bntrows) return false;
+	if (core->Roll(1, 100, 0)>bntchnc[rep]) return false;
+	//TODO: unhardcode this
+	memcpy(BaseArea+4,"10",3);
+	return gamedata->Exists(BaseArea, IE_ARE_CLASS_ID);
 }

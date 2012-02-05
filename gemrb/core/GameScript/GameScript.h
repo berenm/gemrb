@@ -75,6 +75,7 @@ class GameScript;
 #define VB_TIMMUNE   67
 #define VB_INVENTORY 68
 #define VB_PP_SUCC   69
+#define VB_SPELL_DISRUPTED 71
 #define VB_BIO       74
 
 //diffmode (iwd2)
@@ -99,8 +100,19 @@ class GameScript;
 #define AC_NO_SOUND   1
 #define AC_RUNNING    2
 
+//spelll core flags
+#define SC_NO_DEAD      1
+#define SC_RANGE_CHECK  2
+#define SC_DEPLETE      4
+#define SC_SETLEVEL     8
+#define SC_INSTANT      16
+#define SC_AURA_CHECK   32
+#define SC_NOINTERRUPT  64
+
 //trigger flags stored in triggers in .bcs files
-#define NEGATE_TRIGGER 1
+#define TF_NEGATE  1   //negate trigger result
+#define TF_APPLIED 2   //set in living when trigger applied
+#define TF_ADDED   4   //set in scriptable when trigger added/applied
 
 #define MAX_OBJECT_FIELDS	10
 #define MAX_NESTING		5
@@ -505,7 +517,7 @@ typedef void (* ActionFunction)(Scriptable*, Action*);
 typedef Targets* (* ObjectFunction)(Scriptable *, Targets*, int ga_flags);
 typedef int (* IDSFunction)(Actor *, int parameter);
 
-#define TF_NONE 	0
+#define TF_NONE		0
 #define TF_CONDITION    1 //this isn't a trigger, just a condition (0x4000)
 #define TF_SAVED        2 //trigger is in svtriobj.ids
 #define TF_MERGESTRINGS 8 //same value as actions' mergestring
@@ -544,21 +556,21 @@ struct TriggerLink {
 #define BD_ITEM      512 //talk to an item
 #define BD_NOEMPTY   1024 //don't display '... has nothing to say to you'
 
-#define AF_NONE 	 0
-#define AF_IMMEDIATE     1
-#define AF_CONTINUE      2
-#define AF_MASK 	 3   //none, immediate or continue
-#define AF_BLOCKING      4
-#define AF_MERGESTRINGS  8
+#define AF_NONE         0
+#define AF_IMMEDIATE    1
+#define AF_CONTINUE     2
+#define AF_MASK         3   //none, immediate or continue
+#define AF_BLOCKING     4
+#define AF_MERGESTRINGS 8
 //we could use this flag to restrict player scripts from using dangerous
 //opcodes, it would be a very useful and easy to implement feature!
-#define AF_RESTRICTED    16
+#define AF_RESTRICTED   16
 //#define AF_RESTRICTED_LEVEL2  32 //maybe we could use 2 bits for this???
-#define AF_SCRIPTLEVEL   64  //this hack will transfer scriptlevel to int0parameter at runtime (changecurrentscript relies on it)
-#define AF_INVALID       128
-#define AF_DIRECT        256 //this hack will transfer target from gamecontrol to object1 at compile time
-#define AF_ALIVE         512 //only alive actors can do this
-#define AF_INSTANT       1024
+#define AF_SCRIPTLEVEL  64  //this hack will transfer scriptlevel to int0parameter at runtime (changecurrentscript relies on it)
+#define AF_INVALID      128
+#define AF_DIRECT       256 //this hack will transfer target from gamecontrol to object1 at compile time
+#define AF_ALIVE        512 //only alive actors can do this
+#define AF_INSTANT      1024
 
 struct ActionLink {
 	const char* Name;
@@ -676,9 +688,9 @@ public: //Script Functions
 	static int Contains(Scriptable* Sender, Trigger* parameters);
 	static int CreatureHidden( Scriptable* Sender, Trigger* parameters);
 	static int CurrentAreaIs(Scriptable* Sender, Trigger* parameters);
-	//static int DamageTaken(Scriptable* Sender, Trigger* parameters);
-	//static int DamageTakenGT(Scriptable* Sender, Trigger* parameters);
-	//static int DamageTakenLT(Scriptable* Sender, Trigger* parameters);
+	static int DamageTaken(Scriptable* Sender, Trigger* parameters);
+	static int DamageTakenGT(Scriptable* Sender, Trigger* parameters);
+	static int DamageTakenLT(Scriptable* Sender, Trigger* parameters);
 	static int Dead(Scriptable* Sender, Trigger* parameters);
 	static int Delay(Scriptable* Sender, Trigger* parameters);
 	static int Detect(Scriptable* Sender, Trigger* parameters);
@@ -777,6 +789,7 @@ public: //Script Functions
 	static int IsExtendedNight(Scriptable* Sender, Trigger* parameters);
 	static int IsFacingObject(Scriptable* Sender, Trigger* parameters);
 	static int IsFacingSavedRotation(Scriptable* Sender, Trigger* parameters);
+	static int IsInGuardianMantle(Scriptable* Sender, Trigger* parameters);
 	static int IsLocked(Scriptable* Sender, Trigger* parameters);
 	static int IsMarkedSpell(Scriptable* Sender, Trigger* parameters);
 	static int IsOverMe(Scriptable* Sender, Trigger* parameters);
@@ -1117,7 +1130,9 @@ public:
 	static void ForceLeaveAreaLUA(Scriptable* Sender, Action* parameters);
 	static void ForceMarkedSpell(Scriptable* Sender, Action* parameters);
 	static void ForceSpell(Scriptable* Sender, Action* parameters);
+	static void ForceSpellRange(Scriptable* Sender, Action* parameters);
 	static void ForceSpellPoint(Scriptable* Sender, Action* parameters);
+	static void ForceSpellPointRange(Scriptable* Sender, Action* parameters);
 	static void ForceUseContainer(Scriptable* Sender, Action* parameters);
 	static void Formation(Scriptable* Sender, Action* parameters);
 	static void FullHeal(Scriptable* Sender, Action* parameters);

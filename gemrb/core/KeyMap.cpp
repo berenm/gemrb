@@ -106,7 +106,7 @@ bool KeyMap::InitializeKeyMap(const char *inifile, const char *tablefile)
 		void *tmp;
 
 		if (l<0 || l>1 || keymap.Lookup(value, tmp) ) {
-//			print("Ignoring key %s\n", value);
+			print("Ignoring key %s\n", value);
 			continue;
 		}
 
@@ -122,10 +122,10 @@ bool KeyMap::InitializeKeyMap(const char *inifile, const char *tablefile)
 			module = kmtable->QueryField("Default","MODULE");
 			function = kmtable->QueryField("Default","FUNCTION");
 			group = kmtable->QueryField("Default","GROUP");
+			print("Adding key %s with function %s::%s\n", value, module, function);
 		}
 		fun = new Function(module, function, atoi(group));
 		keymap.SetAt(value, fun);
-//		print("Adding key %s with function %s::%s\n", value, module, function);
 	}
 	delete config;
 	return true;
@@ -142,7 +142,7 @@ void KeyMap::ResolveKey(int key, int group)
 	keystr[0]=(char) key;
 	keystr[1]=0;
 
-//	print("Looking up key: %c (%s) \n", key, keystr);
+	print("Looking up key: %c (%s) \n", key, keystr);
 
 	if (!keymap.Lookup(keystr, tmp) ) {
 		return;
@@ -153,8 +153,8 @@ void KeyMap::ResolveKey(int key, int group)
 		return;
 	}
 
-//	printMessage("KeyMap", " ", WHITE);
-//	print("RunFunction(%s::%s)\n",fun->module, fun->function);
+	printMessage("KeyMap", " ", WHITE);
+	print("RunFunction(%s::%s)\n",fun->module, fun->function);
 	core->GetGUIScriptEngine()->RunFunction(fun->module, fun->function);
 }
 

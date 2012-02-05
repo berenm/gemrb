@@ -182,17 +182,17 @@ int fx_play_bam_blended (Scriptable* Owner, Actor* target, Effect* fx)
 		rgb.type=RGBModifier::TINT;
 		sca->AlterPalette(rgb);
 	}
-	if (fx->TimingMode==FX_DURATION_INSTANT_PERMANENT) {
-		playonce=true;
-	} else {
+	if ((fx->TimingMode==FX_DURATION_INSTANT_LIMITED) && (fx->Parameter2&1) ) {
 		playonce=false;
+	} else {
+		playonce=true;
 	}
 	if (playonce) {
-			sca->PlayOnce();
+		sca->PlayOnce();
 	} else {
 		if (fx->Parameter2&1) {
 			//four cycles, duration is in millisecond
-			sca->SetDefaultDuration(sca->GetSequenceDuration(AI_UPDATE_TIME));		
+			sca->SetDefaultDuration(sca->GetSequenceDuration(AI_UPDATE_TIME));
 		} else {
 			sca->SetDefaultDuration(fx->Duration-core->GetGame()->Ticks);
 		}
@@ -433,7 +433,8 @@ int fx_special_effect (Scriptable* Owner, Actor* target, Effect* fx)
 			strnuprcpy(fx->Resource,"rdead",8);
 			break;
 	}
-	Owner->CastSpell(fx->Resource, target, false);
+	Owner->SetSpellResRef(fx->Resource);
+	Owner->CastSpell(target, false);
 	Owner->CastSpellEnd(fx->CasterLevel);
 	return FX_NOT_APPLIED;
 }
@@ -461,7 +462,7 @@ int fx_multiple_vvc (Scriptable* Owner, Actor* /*target*/, Effect* fx)
 		offset.y=atoi(tab->QueryField(rows,1));
 		delay = atoi(tab->QueryField(rows,3));
 		duration = atoi(tab->QueryField(rows,4));
-	 	ScriptedAnimation *sca = gamedata->GetScriptedAnimation(tab->QueryField(rows,2), true);
+		ScriptedAnimation *sca = gamedata->GetScriptedAnimation(tab->QueryField(rows,2), true);
 		if (!sca) continue;
 		sca->SetBlend();
 		sca->SetDelay(AI_UPDATE_TIME*delay);
@@ -487,12 +488,336 @@ int fx_change_background (Scriptable* /*Owner*/, Actor* /*target*/, Effect* fx)
 
 //0xc7-c8 fx_unknown
 //0xc9 fx_overlay
-int fx_overlay (Scriptable* /*Owner*/, Actor* target, Effect* fx)
+static EffectRef fx_armor_ref = { "ACVsDamageTypeModifier", -1 };
+static EffectRef fx_breath_ref = { "SaveVsBreathModifier", -1 };
+static EffectRef fx_death_ref = { "SaveVsDeathModifier", -1 };
+static EffectRef fx_poly_ref = { "SaveVsPolyModifier", -1 };
+static EffectRef fx_spell_ref = { "SaveVsSpellsModifier", -1 };
+static EffectRef fx_wands_ref = { "SaveVsWandsModifier", -1 };
+static EffectRef fx_damage_opcode_ref = { "Damage", -1 };
+static EffectRef fx_colorchange_ref = { "Color:SetRGBGlobal", -1 };
+static EffectRef fx_colorpulse_ref = { "Color:PulseRGBGlobal", -1 };
+static EffectRef fx_single_color_pulse_ref = { "Color:BriefRGB", -1 };
+static EffectRef fx_resistfire_ref = { "FireResistanceModifier", -1 };
+static EffectRef fx_resistmfire_ref = { "MagicalFireResistanceModifier", -1 };
+static EffectRef fx_protection_ref = { "Protection:SpellLevel", -1 };
+static EffectRef fx_magicdamage_ref = { "MagicDamageResistanceModifier", -1 };
+static EffectRef fx_dispel_ref = { "DispelEffects", -1 };
+static EffectRef fx_miscast_ref = { "MiscastMagicModifier", -1 };
+static EffectRef fx_set_state_ref = { "SetStatus", -1 };
+
+static inline int DamageLastHitter(Effect *fx, Actor *target, int param1, int param2)
+{
+	if (fx->Parameter3) {
+		Map *map = target->GetCurrentArea();
+		Actor *actor = map->GetActorByGlobalID(target->LastHitter);
+		if (actor && PersonalDistance(target, actor)<30 ) {
+			const TriggerEntry *entry = target->GetMatchingTrigger(trigger_hitby, TEF_PROCESSED_EFFECTS);
+			if (entry) {
+				Effect *newfx = EffectQueue::CreateEffect( fx_damage_opcode_ref, param1, param2, FX_DURATION_INSTANT_PERMANENT);
+				newfx->Target = FX_TARGET_PRESET;
+				newfx->Power = fx->Power;
+				memcpy(newfx->Source, fx->Source, sizeof(newfx->Source) );
+				core->ApplyEffect(newfx, actor, target);
+				if (fx->Parameter3!=0xffffffff) {
+					fx->Parameter3--;
+				}
+			}
+		}
+	}
+
+	if (!fx->Parameter3) {
+		return FX_NOT_APPLIED;
+	}
+	return FX_APPLIED;
+}
+
+static inline void ConvertTiming(Effect *fx, int Duration)
+{
+	fx->Duration = Duration;
+	fx->TimingMode = FX_DURATION_INSTANT_LIMITED;
+	ieDword GameTime = core->GetGame()->GameTime;
+	PrepareDuration(fx);
+}
+
+int fx_overlay (Scriptable* Owner, Actor* target, Effect* fx)
 {
 	if (0) print( "fx_overlay (%2d): Par2: %d\n", fx->Opcode, fx->Parameter2 );
-	target->AddAnimation(fx->Resource,-1,0,true);
+	if (!target) {
+		return FX_NOT_APPLIED;
+	}
+	int terminate = FX_APPLIED;
+	bool playonce = false;
+	ieDword tint = 0;
+	Effect *newfx;
+
 	//special effects based on fx_param2
-	return FX_NOT_APPLIED;
+	if (fx->FirstApply) {
+		switch(fx->Parameter2) {
+		case 0: //cloak of warding
+			ConvertTiming (fx, 5 * fx->CasterLevel);
+			fx->Parameter3 = core->Roll(3,4,fx->CasterLevel);
+			break;
+		case 1: //shield
+			ConvertTiming(fx, 25 * fx->CasterLevel);
+
+			newfx = EffectQueue::CreateEffectCopy(fx, fx_armor_ref, 3, 16);
+			core->ApplyEffect(newfx, target, Owner);
+
+			newfx = EffectQueue::CreateEffectCopy(fx, fx_breath_ref, 1, 0);
+			core->ApplyEffect(newfx, target, Owner);
+
+			newfx = EffectQueue::CreateEffectCopy(fx, fx_death_ref, 1, 0);
+			core->ApplyEffect(newfx, target, Owner);
+
+			newfx = EffectQueue::CreateEffectCopy(fx, fx_poly_ref, 1, 0);
+			core->ApplyEffect(newfx, target, Owner);
+
+			newfx = EffectQueue::CreateEffectCopy(fx, fx_spell_ref, 1, 0);
+			core->ApplyEffect(newfx, target, Owner);
+
+			newfx = EffectQueue::CreateEffectCopy(fx, fx_wands_ref, 1, 0);
+			core->ApplyEffect(newfx, target, Owner);
+			break;
+		case 2: //black barbed shield
+			ConvertTiming (fx, core->Roll(10,3,0));
+
+			newfx = EffectQueue::CreateEffectCopy(fx, fx_armor_ref, 2, 0);
+			core->ApplyEffect(newfx, target, Owner);
+			fx->Parameter3=0xffffffff;
+			break;
+		case 3: //pain mirror
+			fx->Parameter3 = 1;
+			ConvertTiming (fx, 5 * fx->CasterLevel);
+
+			newfx = EffectQueue::CreateEffectCopy(fx, fx_colorpulse_ref, 0xFAFF7000, 0x30000C);
+			core->ApplyEffect(newfx, target, Owner);
+			break;
+		case 4: //guardian mantle
+			ConvertTiming (fx, 50 + 5 * fx->CasterLevel);
+			break;
+		case 5: //shroud of shadows
+
+			break;
+		case 6: //duplication
+			core->GetAudioDrv()->Play("magic02", target->Pos.x, target->Pos.y);
+			break;
+		case 7: //armor
+			newfx = EffectQueue::CreateEffectCopy(fx, fx_colorchange_ref, 0x825A2800, -1);
+			core->ApplyEffect(newfx, target, Owner);
+
+			newfx = EffectQueue::CreateEffectCopy(fx, fx_armor_ref, 6, 16);
+			core->ApplyEffect(newfx, target, Owner);
+			break;
+		case 8: //antimagic shell
+			{
+				int i;
+
+				newfx = EffectQueue::CreateEffectCopy(fx, fx_dispel_ref, 100, 0);
+				newfx->Power = 10;
+				core->ApplyEffect(newfx, target, Owner);
+
+				for (i=0;i<2;i++) {
+					newfx = EffectQueue::CreateEffectCopy(fx, fx_miscast_ref, 100, i);
+					core->ApplyEffect(newfx, target, Owner);
+				}
+
+				for (i=1;i<10;i++) {
+					newfx = EffectQueue::CreateEffectCopy(fx, fx_protection_ref, i, 0);
+					core->ApplyEffect(newfx, target, Owner);
+				}
+				newfx = EffectQueue::CreateEffectCopy(fx, fx_magicdamage_ref, 100, 0);
+				core->ApplyEffect(newfx, target, Owner);
+
+				newfx = EffectQueue::CreateEffectCopy(fx, fx_set_state_ref, 1, STATE_ANTIMAGIC);
+				core->ApplyEffect(newfx, target, Owner);
+			}
+			break;
+		case 9: case 10: //unused
+		default:
+			break;
+		case 11: //flame walk
+			ConvertTiming (fx, 10 * fx->CasterLevel);
+
+			newfx = EffectQueue::CreateEffectCopy(fx, fx_single_color_pulse_ref, 0xFF00, 0x400040);
+			core->ApplyEffect(newfx, target, Owner);
+
+			newfx = EffectQueue::CreateEffectCopy(fx, fx_colorchange_ref, 0x64FA00, 0x50005);
+			//wtf is this
+			newfx->IsVariable = 0x23;
+			core->ApplyEffect(newfx, target, Owner);
+
+			newfx = EffectQueue::CreateEffectCopy(fx, fx_resistfire_ref, 50, 1);
+			core->ApplyEffect(newfx, target, Owner);
+
+			newfx = EffectQueue::CreateEffectCopy(fx, fx_resistmfire_ref, 50, 1);
+			core->ApplyEffect(newfx, target, Owner);
+			break;
+		case 12: //protection from evil
+			ConvertTiming (fx, 10 * fx->CasterLevel);
+
+			newfx = EffectQueue::CreateEffectCopy(fx, fx_armor_ref, 2, 0);
+			core->ApplyEffect(newfx, target, Owner);
+
+			newfx = EffectQueue::CreateEffectCopy(fx, fx_breath_ref, 2, 0);
+			core->ApplyEffect(newfx, target, Owner);
+
+			newfx = EffectQueue::CreateEffectCopy(fx, fx_death_ref, 2, 0);
+			core->ApplyEffect(newfx, target, Owner);
+
+			newfx = EffectQueue::CreateEffectCopy(fx, fx_poly_ref, 2, 0);
+			core->ApplyEffect(newfx, target, Owner);
+
+			newfx = EffectQueue::CreateEffectCopy(fx, fx_spell_ref, 2, 0);
+			core->ApplyEffect(newfx, target, Owner);
+
+			newfx = EffectQueue::CreateEffectCopy(fx, fx_wands_ref, 2, 0);
+			core->ApplyEffect(newfx, target, Owner);
+			//terminate = FX_NOT_APPLIED;
+			break;
+		case 13: //conflagration
+			ConvertTiming (fx, 50);
+			playonce = true;
+			break;
+		case 14: //infernal shield
+			tint = 0x5EC2FE;
+			ConvertTiming (fx, 5 * fx->CasterLevel);
+
+			newfx = EffectQueue::CreateEffectCopy(fx, fx_resistfire_ref, 150, 1);
+			core->ApplyEffect(newfx, target, Owner);
+
+			newfx = EffectQueue::CreateEffectCopy(fx, fx_resistmfire_ref, 150, 1);
+			core->ApplyEffect(newfx, target, Owner);
+			break;
+		case 15: //submerge the will
+			tint = 0x538D90;
+			ConvertTiming (fx, 12 * fx->CasterLevel);
+
+			newfx = EffectQueue::CreateEffectCopy(fx, fx_armor_ref, 2, 16);
+			core->ApplyEffect(newfx, target, Owner);
+
+			newfx = EffectQueue::CreateEffectCopy(fx, fx_breath_ref, 1, 0);
+			core->ApplyEffect(newfx, target, Owner);
+
+			newfx = EffectQueue::CreateEffectCopy(fx, fx_death_ref, 1, 0);
+			core->ApplyEffect(newfx, target, Owner);
+
+			newfx = EffectQueue::CreateEffectCopy(fx, fx_poly_ref, 1, 0);
+			core->ApplyEffect(newfx, target, Owner);
+
+			newfx = EffectQueue::CreateEffectCopy(fx, fx_spell_ref, 1, 0);
+			core->ApplyEffect(newfx, target, Owner);
+
+			newfx = EffectQueue::CreateEffectCopy(fx, fx_wands_ref, 1, 0);
+			core->ApplyEffect(newfx, target, Owner);
+			break;
+		case 16: //balance in all things
+			tint = 0x615AB4;
+			fx->Parameter3 = fx->CasterLevel/4;
+			ConvertTiming (fx, 5 * fx->CasterLevel);
+
+			newfx = EffectQueue::CreateEffectCopy(fx, fx_colorpulse_ref, 0x615AB400, 0x30000C);
+			core->ApplyEffect(newfx, target, Owner);
+			playonce = true;
+			break;
+		}
+
+		if (!target->HasVVCCell(fx->Resource)) {
+			ScriptedAnimation *sca = gamedata->GetScriptedAnimation(fx->Resource, true);
+			if (sca) {
+				if (tint) {
+					RGBModifier rgb;
+
+					rgb.speed=-1;
+					rgb.phase=0;
+					rgb.rgb.r=tint;
+					rgb.rgb.g=tint >> 8;
+					rgb.rgb.b=tint >> 16;
+					rgb.rgb.a=tint >> 24;
+					rgb.type=RGBModifier::TINT;
+
+					sca->AlterPalette(rgb);
+				}
+				sca->SetBlend();
+				if (playonce) {
+					sca->PlayOnce();
+				} else {
+					sca->SetDefaultDuration(fx->Duration-core->GetGame()->Ticks);
+				}
+				sca->SetBlend();
+				sca->SetEffectOwned(true);
+				ScriptedAnimation *twin = sca->DetachTwin();
+				if (twin) {
+					target->AddVVCell(twin);
+				}
+				target->AddVVCell(sca);
+			}
+		}
+	}
+
+	ScriptedAnimation *vvc = target->GetVVCCell(&target->vvcOverlays, fx->Resource);
+	if (vvc) {
+		vvc->active = true;
+		vvc = target->GetVVCCell(&target->vvcShields, fx->Resource);
+		if (vvc) {
+			vvc->active = true;
+		}
+	} else {
+		return FX_NOT_APPLIED;
+	}
+
+	switch(fx->Parameter2) {
+	case 0: //cloak of warding
+		if (fx->Parameter3<=0) {
+			return FX_NOT_APPLIED;
+		}
+		//flag for removal trigger
+		target->Modified[IE_STONESKINS]=1;
+		break;
+	case 2: //black barbed shield (damage opponents)
+		if (target->LastHitter) {
+			terminate = DamageLastHitter(fx, target, core->Roll(2, 6, 0),0x100000 );
+		}
+		break;
+	case 3: case 16: //pain mirror or balance in all things
+		if (target->LastHitter) {
+			//well, someone took LastDamage out
+			//terminate = DamageLastHitter(fx, target, target->LastDamage, target->LastDamageType);
+		}
+		break;
+	case 4:
+		//this is not the original position, but the immunity stat was already used for things like this
+		//as an added benefit, HasImmunityEffects also works with the pst spell
+		STAT_BIT_OR( IE_IMMUNITY, IMM_GUARDIAN);
+		break;
+	case 5:
+		break;
+	case 6:
+		STATE_SET(STATE_EE_DUPL);
+		break;
+	case 7:
+		break;
+	case 8: //antimagic shell
+		if (!target->HasVVCCell("S061GLWB") ) {
+			ScriptedAnimation *sca = gamedata->GetScriptedAnimation("S061GLWB", false);
+			if (sca) {
+				sca->SetDefaultDuration(fx->Duration-core->GetGame()->Ticks);
+				target->AddVVCell(sca);
+			}
+		}
+		break;
+	case 11:
+	case 12:
+	case 13:
+	case 14:
+	case 15:
+		break;
+	default:;
+	}
+	//PST doesn't keep these effects applied, but we do, because we don't have
+	//separate stats for these effects.
+	//We just use Parameter3 for the stats where needed
+	return terminate;
 }
 //0xca fx_unknown
 
@@ -559,7 +884,7 @@ int fx_prayer (Scriptable* Owner, Actor* target, Effect* fx)
 	int i = map->GetActorCount(true);
 	Effect *newfx = EffectQueue::CreateEffect(type?fx_curse_ref:fx_bless_ref, fx->Parameter1, fx->Parameter2, FX_DURATION_INSTANT_LIMITED);
 	memcpy(newfx, fx->Source,sizeof(ieResRef));
-	newfx->Duration=60;
+	newfx->Duration = 60;
 	while(i--) {
 		Actor *tar=map->GetActor(i,true);
 		ea = tar->GetStat(IE_EA);
@@ -649,8 +974,6 @@ int fx_hostile_image (Scriptable* /*Owner*/, Actor* /*target*/, Effect* fx)
 }
 
 //0xd2 fx_detect_evil
-static EffectRef fx_single_color_pulse_ref = { "Color:BriefRGB", -1 };
-
 int fx_detect_evil (Scriptable* Owner, Actor* target, Effect* fx)
 {
 	if (0) print( "fx_detect_evil (%2d): Par1: %d Par2: %d\n", fx->Opcode, fx->Parameter1, fx->Parameter2 );

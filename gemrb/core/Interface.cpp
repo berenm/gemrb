@@ -28,6 +28,7 @@
 #include "globals.h"
 #include "strrefs.h"
 #include "win32def.h"
+#include "ie_cursors.h"
 
 #include "ActorMgr.h"
 #include "AmbientMgr.h"
@@ -186,11 +187,15 @@ Interface::Interface(int iargc, char* iargv[])
 #else
 	CaseSensitive = false;
 #endif
-	GameOnCD = false;
+	SlowBIFs = false;
 	SkipIntroVideos = false;
 	DrawFPS = false;
 	TouchScrollAreas = false;
+	UseSoftKeyboard = false;
 	KeepCache = false;
+	NumFingInfo = 2;
+	NumFingKboard = 3;
+	NumFingScroll = 2;
 	TooltipDelay = 100;
 	IgnoreOriginalINI = 0;
 	FullScreen = 0;
@@ -615,6 +620,13 @@ void Interface::HandleEvents()
 		gc->UpdateTargetMode();
 		return;
 	}
+
+	if (EventFlag&EF_TEXTSCREEN) {
+		EventFlag&=~EF_TEXTSCREEN;
+		video->SetMouseEnabled(true);
+		guiscript->RunFunction( "TextScreen", "StartTextScreen" );
+		return;
+	}
 }
 
 /* handle main loop events that might destroy or create windows
@@ -775,6 +787,7 @@ bool Interface::ReadGameTimeTable()
 	Time.turn_sec = atoi(table->QueryField("TURN_SECONDS", "DURATION"));
 	Time.round_size = Time.round_sec * AI_UPDATE_TIME;
 	Time.rounds_per_turn = Time.turn_sec / Time.round_sec;
+	Time.attack_round_size = atoi(table->QueryField("ATTACK_ROUND", "DURATION"));
 
 	return true;
 }
@@ -1486,7 +1499,11 @@ int Interface::Init()
 		char path[_MAX_PATH];
 
 		PathJoin( path, CachePath, NULL);
-		gamedata->AddSource(path, "Cache", PLUGIN_RESOURCE_DIRECTORY);
+		if (!gamedata->AddSource(path, "Cache", PLUGIN_RESOURCE_DIRECTORY)) {
+			print( "The cache path couldn't be registered, please check! " );
+			printStatus( "ERROR", LIGHT_RED );
+			return GEM_ERROR;
+		}
 
 		PathJoin( path, GemRBOverridePath, "override", GameType, NULL);
 		gamedata->AddSource(path, "GemRB Override", PLUGIN_RESOURCE_CACHEDDIRECTORY);
@@ -1501,8 +1518,10 @@ int Interface::Init()
 		PathJoin( path, GamePath, GameOverridePath, NULL);
 		gamedata->AddSource(path, "Override", PLUGIN_RESOURCE_CACHEDDIRECTORY);
 
+		//GAME sounds are intentionally not cached, in IWD there are directory structures,
+		//that are not cacheable, also it is totally pointless (this fixed charsounds in IWD)
 		PathJoin( path, GamePath, GameSoundsPath, NULL);
-		gamedata->AddSource(path, "Sounds", PLUGIN_RESOURCE_CACHEDDIRECTORY);
+		gamedata->AddSource(path, "Sounds", PLUGIN_RESOURCE_DIRECTORY);
 
 		PathJoin( path, GamePath, GameScriptsPath, NULL);
 		gamedata->AddSource(path, "Scripts", PLUGIN_RESOURCE_CACHEDDIRECTORY);
@@ -1784,7 +1803,7 @@ int Interface::Init()
 	}
 	game = NULL;
 	calendar = NULL;
-        keymap = NULL;
+	keymap = NULL;
 
 	timer = new GlobalTimer();
 	printMessage( "Core", "Bringing up the Global Timer...", WHITE );
@@ -2263,7 +2282,7 @@ bool Interface::LoadConfig(const char* filename)
 		CONFIG_INT("FullScreen", FullScreen = );
 		CONFIG_INT("GUIEnhancements", GUIEnhancements = );
 		CONFIG_INT("TouchScrollAreas", TouchScrollAreas = );
-		CONFIG_INT("GameOnCD", GameOnCD = );
+		CONFIG_INT("SlowBIFs", SlowBIFs = );
 		CONFIG_INT("Height", Height = );
 		CONFIG_INT("KeepCache", KeepCache = );
 		CONFIG_INT("MultipleQuickSaves", MultipleQuickSaves = );
@@ -2275,6 +2294,9 @@ bool Interface::LoadConfig(const char* filename)
 		CONFIG_INT("Width", Width = );
 		CONFIG_INT("IgnoreOriginalINI", IgnoreOriginalINI = );
 		CONFIG_INT("UseSoftKeyboard", UseSoftKeyboard = );
+		CONFIG_INT("NumFingScroll", NumFingScroll = );
+		CONFIG_INT("NumFingKboard", NumFingKboard = );
+		CONFIG_INT("NumFingInfo", NumFingInfo = );
 #undef CONFIG_INT
 #define CONFIG_STRING(str, var) \
 		} else if (stricmp(name, str) == 0) { \
@@ -3056,7 +3078,7 @@ int Interface::AdjustScrolling(unsigned short WindowIndex,
 
 /** Set the Tooltip text of a Control */
 int Interface::SetTooltip(unsigned short WindowIndex,
-		unsigned short ControlIndex, const char* string)
+		unsigned short ControlIndex, const char* string, int Function)
 {
 	if (WindowIndex >= windows.size()) {
 		return -1;
@@ -3068,6 +3090,12 @@ int Interface::SetTooltip(unsigned short WindowIndex,
 	Control* ctrl = win->GetControl( ControlIndex );
 	if (ctrl == NULL) {
 		return -1;
+	}
+
+	if (Function) {
+		win->FunctionBar = true;
+		evntmgr->SetFunctionBar(win);
+		ctrl->SetFunctionNumber(Function-1);
 	}
 	return ctrl->SetTooltip( string );
 }
@@ -3126,6 +3154,9 @@ int Interface::SetVisible(unsigned short WindowIndex, int visible)
 		case WINDOW_FRONT:
 			if (win->Visible==WINDOW_VISIBLE) {
 				evntmgr->AddWindow( win );
+				if (win->FunctionBar) {
+					evntmgr->SetFunctionBar( win );
+				}
 			}
 			win->Invalidate();
 			SetOnTop( WindowIndex );
@@ -4272,14 +4303,14 @@ int Interface::CanUseItemType(int slottype, Item *item, Actor *actor, bool feedb
 		}
 		if (slottype&SLOT_SHIELD) {
 			//cannot equip twohanded in offhand
-			if (feedback) displaymsg->DisplayConstantString(STR_NOT_IN_OFFHAND, 0xf0f0f0);
+			if (feedback) displaymsg->DisplayConstantString(STR_NOT_IN_OFFHAND, DMC_WHITE);
 			return 0;
 		}
 	}
 
 	if ( (unsigned int) item->ItemType>=(unsigned int) ItemTypes) {
 		//invalid itemtype
-		if (feedback) displaymsg->DisplayConstantString(STR_WRONGITEMTYPE, 0xf0f0f0);
+		if (feedback) displaymsg->DisplayConstantString(STR_WRONGITEMTYPE, DMC_WHITE);
 		return 0;
 	}
 
@@ -4288,13 +4319,13 @@ int Interface::CanUseItemType(int slottype, Item *item, Actor *actor, bool feedb
 		//constant strings
 		int idx = actor->Unusable(item);
 		if (idx) {
-			if (feedback) displaymsg->DisplayConstantString(idx, 0xf0f0f0);
+			if (feedback) displaymsg->DisplayConstantString(idx, DMC_WHITE);
 			return 0;
 		}
 		//custom strings
 		ieStrRef str = actor->Disabled(item->Name, item->ItemType);
 		if (str && !equipped) {
-			if (feedback) displaymsg->DisplayString(str, 0xf0f0f0, 0);
+			if (feedback) displaymsg->DisplayString(str, DMC_WHITE, 0);
 			return 0;
 		}
 	}
@@ -4303,7 +4334,7 @@ int Interface::CanUseItemType(int slottype, Item *item, Actor *actor, bool feedb
 	int ret = (slotmatrix[item->ItemType]&slottype);
 
 	if (!ret) {
-		if (feedback) displaymsg->DisplayConstantString(STR_WRONGITEMTYPE, 0xf0f0f0);
+		if (feedback) displaymsg->DisplayConstantString(STR_WRONGITEMTYPE, DMC_WHITE);
 		return 0;
 	}
 
@@ -4330,7 +4361,7 @@ int Interface::CanUseItemType(int slottype, Item *item, Actor *actor, bool feedb
 			}
 
 			if (!flg) {
-				displaymsg->DisplayConstantString(STR_UNUSABLEITEM, 0xf0f0f0);
+				displaymsg->DisplayConstantString(STR_UNUSABLEITEM, DMC_WHITE);
 				return 0;
 			}
 		}
@@ -4713,20 +4744,6 @@ Effect *Interface::GetFeatures(int count)
 	return new Effect[count];
 }
 
-/*
-void Interface::FreeITMExt(ITMExtHeader *p, Effect *e)
-{
-	delete [] p;
-	delete [] e;
-}
-
-void Interface::FreeSPLExt(SPLExtHeader *p, Effect *e)
-{
-	delete [] p;
-	delete [] e;
-}
-*/
-
 WorldMapArray *Interface::NewWorldMapArray(int count)
 {
 	return new WorldMapArray(count);
@@ -4917,7 +4934,7 @@ void Interface::ApplySpellPoint(const ieResRef resname, Map* area, const Point &
 		return;
 	}
 	int header = spell->GetHeaderIndexFromLevel(level);
-	Projectile *pro = spell->GetProjectile(caster, header, pos);
+	Projectile *pro = spell->GetProjectile(caster, header, level, pos);
 	pro->SetCaster(caster->GetGlobalID(), level);
 	area->AddProjectile(pro, caster->Pos, pos);
 }
@@ -5287,8 +5304,8 @@ int Interface::Autopause(ieDword flag)
 	ieDword autopause_flags = 0;
 
 	vars->Lookup("Auto Pause State", autopause_flags);
-	if (autopause_flags & (1<<flag)) {
-		displaymsg->DisplayConstantString(STR_AP_UNUSABLE+flag, 0xff0000);
+	if ((autopause_flags & (1<<flag))) {
+		displaymsg->DisplayConstantString(STR_AP_UNUSABLE+flag, DMC_RED);
 		gc->SetDialogueFlags(DF_FREEZE_SCRIPTS, BM_OR);
 		return 1;
 	}
@@ -5386,30 +5403,44 @@ ieDword Interface::TranslateStat(const char *stat_name)
 // Calculates an arbitrary stat bonus, based on tables.
 // the master table contains the table names (as row names) and the used stat
 // the subtables contain stat value/bonus pairs.
-ieDword Interface::ResolveStatBonus(Actor *actor, const char *tablename)
+// Optionally an override stat value can be specified (needed for use in pcfs).
+int Interface::ResolveStatBonus(Actor *actor, const char *tablename, ieDword flags, int value)
 {
-        int mastertable = gamedata->LoadTable( tablename );
-        Holder<TableMgr> mtm = gamedata->GetTable( mastertable );
-        if (!mtm) {
+	int mastertable = gamedata->LoadTable( tablename );
+	Holder<TableMgr> mtm = gamedata->GetTable( mastertable );
+	if (!mtm) {
 		printMessage("Core", "Cannot resolve stat bonus.\n", RED);
-                return -1;
-        }
-        int count = mtm->GetRowCount();
-        if (count< 1) {
+		return -1;
+	}
+	int count = mtm->GetRowCount();
+	if (count< 1) {
 		return 0;
-        }
-        ieDword ret = 0;
-        // tables for additive modifiers of bonus type
-        for (int i = 0; i < count; i++) {
+	}
+	int ret = 0;
+	// tables for additive modifiers of bonus type
+	for (int i = 0; i < count; i++) {
 		tablename = mtm->GetRowName(i);
+		int checkcol = strtol(mtm->QueryField(i,1), NULL, 0);
+		unsigned int readcol = strtol(mtm->QueryField(i,2), NULL, 0);
 		int stat = TranslateStat(mtm->QueryField(i,0) );
-		ieDword value = actor->GetSafeStat(stat);
+		if (!(flags&1)) {
+			value = actor->GetSafeStat(stat);
+		}
 		int table = gamedata->LoadTable( tablename );
 		Holder<TableMgr> tm = gamedata->GetTable( table );
 
-		int row = tm->FindTableValue(0, value, 0);
+		int row;
+		if (checkcol == -1) {
+			// use the row names
+			char tmp[4];
+			snprintf(tmp, sizeof(tmp), "%d", value);
+			row = tm->GetRowIndex(tmp);
+		} else {
+			// use the checkcol column (default of 0)
+			row = tm->FindTableValue(checkcol, value, 0);
+		}
 		if (row>=0) {
-			ret += strtol(tm->QueryField(row, 1), NULL, 0);
+			ret += strtol(tm->QueryField(row, readcol), NULL, 0);
 		}
 	}
 	return ret;

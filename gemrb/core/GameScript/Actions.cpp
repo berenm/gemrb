@@ -771,12 +771,16 @@ void GameScript::CutSceneID(Scriptable* /*Sender*/, Action* /*parameters*/)
 	printMessage("GameScript","CutSceneID was called!\n",YELLOW);
 }
 
+static EffectRef fx_charm_ref = { "State:Charmed", -1 };
+
 void GameScript::Enemy(Scriptable* Sender, Action* /*parameters*/)
 {
 	if (Sender->Type != ST_ACTOR) {
 		return;
 	}
 	Actor* actor = ( Actor* ) Sender;
+
+	actor->fxqueue.RemoveAllEffects(fx_charm_ref);
 	actor->SetBase( IE_EA, EA_ENEMY );
 }
 
@@ -786,6 +790,8 @@ void GameScript::Ally(Scriptable* Sender, Action* /*parameters*/)
 		return;
 	}
 	Actor* actor = ( Actor* ) Sender;
+
+	actor->fxqueue.RemoveAllEffects(fx_charm_ref);
 	actor->SetBase( IE_EA, EA_ALLY );
 }
 
@@ -1036,7 +1042,7 @@ void GameScript::MoveToPointNoRecticle(Scriptable* Sender, Action* parameters)
 	}
 	Actor *actor = ( Actor* ) Sender;
 	if (!actor->InMove() || actor->Destination != parameters->pointParameter) {
-		actor->WalkTo( parameters->pointParameter, IF_NORECTICLE, 0 );
+		actor->WalkTo( parameters->pointParameter, IF_NORETICLE, 0 );
 	}
 	if (!actor->InMove()) {
 		// we should probably instead keep retrying until we reach dest
@@ -1070,7 +1076,7 @@ void GameScript::RunToPointNoRecticle(Scriptable* Sender, Action* parameters)
 	}
 	Actor* actor = ( Actor* ) Sender;
 	if (!actor->InMove() || actor->Destination != parameters->pointParameter) {
-		actor->WalkTo( parameters->pointParameter, IF_NORECTICLE|IF_RUNNING, 0 );
+		actor->WalkTo( parameters->pointParameter, IF_NORETICLE|IF_RUNNING, 0 );
 	}
 	if (!actor->InMove()) {
 		// we should probably instead keep retrying until we reach dest
@@ -1914,22 +1920,10 @@ void GameScript::SoundActivate(Scriptable* /*Sender*/, Action* parameters)
 }
 
 // according to IESDP this action is about animations
+//PST's SetCorpseEnabled also handles containers, but no one uses it
 void GameScript::AmbientActivate(Scriptable* Sender, Action* parameters)
 {
-	AreaAnimation* anim = Sender->GetCurrentArea( )->GetAnimation( parameters->string0Parameter);
-	if (!anim) {
-		anim = Sender->GetCurrentArea( )->GetAnimation( parameters->objects[1]->objectName );
-	}
-	if (!anim) {
-		print( "Script error: No Animation Named \"%s\" or \"%s\"\n",
-			parameters->string0Parameter,parameters->objects[1]->objectName );
-		return;
-	}
-	if (parameters->int0Parameter) {
-		anim->Flags |= A_ANI_ACTIVE;
-	} else {
-		anim->Flags &= ~A_ANI_ACTIVE;
-	}
+	AmbientActivateCore(Sender, parameters, parameters->int0Parameter);
 }
 
 void GameScript::ChangeTileState(Scriptable* Sender, Action* parameters)
@@ -2522,7 +2516,7 @@ void GameScript::ToggleDoor(Scriptable* Sender, Action* /*parameters*/)
 	if (distance <= MAX_OPERATING_DISTANCE) {
 		actor->SetOrientation( GetOrient( *otherp, actor->Pos ), false);
 		if (!door->TryUnlock(actor)) {
-			displaymsg->DisplayConstantString(STR_DOORLOCKED,0xd7d7be,door);
+			displaymsg->DisplayConstantString(STR_DOORLOCKED, DMC_LIGHTGREY, door);
 			//playsound unsuccessful opening of door
 			if(door->IsOpen())
 				core->PlaySound(DS_CLOSE_FAIL);
@@ -2575,119 +2569,14 @@ void GameScript::MoveBetweenAreas(Scriptable* Sender, Action* parameters)
 //FIXME The caster must meet the level requirements as set in the spell file
 void GameScript::Spell(Scriptable* Sender, Action* parameters)
 {
-	ieResRef spellres;
-
-	//resolve spellname
-	if (!ResolveSpellName( spellres, parameters) ) {
-		Sender->ReleaseCurrentAction();
-		return;
-	}
-
-	if (Sender->CurrentActionState) {
-		if (Sender->LastTarget) {
-			//if target was set, fire spell
-			Sender->CastSpellEnd(0);
-		} else if(!Sender->LastTargetPos.isempty()) {
-			//the target was converted to a point
-			Sender->CastSpellPointEnd(0);
-		} else {
-			printMessage("GameScript", "Spell lost target somewhere!", LIGHT_RED);
-		}
-		Sender->ReleaseCurrentAction();
-		return;
-	}
-
-	//parse target
-	int seeflag;
-	unsigned int dist = GetSpellDistance(spellres, Sender);
-	if (dist == 0xffffffff) {
-		seeflag = 0;
-	} else {
-		seeflag = GA_NO_DEAD;
-	}
-
-	Scriptable* tar = GetStoredActorFromObject( Sender, parameters->objects[1], seeflag );
-	if (!tar) {
-		Sender->ReleaseCurrentAction();
-		return;
-	}
-
-	if(Sender->Type==ST_ACTOR) {
-		Actor *act = (Actor *) Sender;
-
-		//move near to target
-		if (dist != 0xffffffff) {
-			if (PersonalDistance(tar, Sender) > dist || !Sender->GetCurrentArea()->IsVisible(Sender->Pos, tar->Pos)) {
-				MoveNearerTo(Sender,tar,dist);
-				return;
-			}
-		}
-
-		//face target
-		if (tar != Sender) {
-			act->SetOrientation( GetOrient( tar->Pos, act->Pos ), false );
-		}
-
-		//stop doing anything else
-		act->SetModal(MS_NONE);
-	}
-	Sender->CurrentActionState = 1;
-	int duration = Sender->CastSpell( spellres, tar, true );
-	if (duration != -1) Sender->SetWait(duration);
-
-	//if target was set, feed action back
-	if (!Sender->LastTarget && Sender->LastTargetPos.isempty()) {
-		Sender->ReleaseCurrentAction();
-	}
+	SpellCore(Sender, parameters, SC_NO_DEAD|SC_RANGE_CHECK|SC_DEPLETE|SC_AURA_CHECK);
 }
 
 //spell is depleted, casting time is calculated, interruptible
 //FIXME The caster must meet the level requirements as set in the spell file
 void GameScript::SpellPoint(Scriptable* Sender, Action* parameters)
 {
-	ieResRef spellres;
-
-	//resolve spellname
-	if (!ResolveSpellName( spellres, parameters) ) {
-		Sender->ReleaseCurrentAction();
-		return;
-	}
-
-	if (Sender->CurrentActionState) {
-		if(!Sender->LastTargetPos.isempty()) {
-			//if target was set, fire spell
-			Sender->CastSpellPointEnd(0);
-		} else {
-			printMessage("GameScript", "SpellPoint lost target somewhere!", LIGHT_RED);
-		}
-		Sender->ReleaseCurrentAction();
-		return;
-	}
-
-	if(Sender->Type==ST_ACTOR) {
-		unsigned int dist = GetSpellDistance(spellres, Sender);
-
-		Actor *act = (Actor *) Sender;
-		//move near to target
-		if (PersonalDistance(parameters->pointParameter, Sender) > dist || !Sender->GetCurrentArea()->IsVisible(Sender->Pos, parameters->pointParameter)) {
-			MoveNearerTo(Sender,parameters->pointParameter,dist, 0);
-			return;
-		}
-
-		//face target
-		act->SetOrientation( GetOrient( parameters->pointParameter, act->Pos ), false );
-		//stop doing anything else
-		act->SetModal(MS_NONE);
-	}
-
-	Sender->CurrentActionState = 1;
-	int duration = Sender->CastSpellPoint( spellres, parameters->pointParameter, true );
-	if (duration != -1) Sender->SetWait(duration);
-
-	//if target was set, feed action back
-	if (!Sender->LastTarget && Sender->LastTargetPos.isempty()) {
-		Sender->ReleaseCurrentAction();
-	}
+	SpellPointCore(Sender, parameters, SC_RANGE_CHECK|SC_DEPLETE|SC_AURA_CHECK);
 }
 
 //spell is not depleted (doesn't need to be memorised or known)
@@ -2695,57 +2584,7 @@ void GameScript::SpellPoint(Scriptable* Sender, Action* parameters)
 //FIXME The caster must meet the level requirements as set in the spell file
 void GameScript::SpellNoDec(Scriptable* Sender, Action* parameters)
 {
-	ieResRef spellres;
-
-	//resolve spellname
-	if (!ResolveSpellName( spellres, parameters) ) {
-		Sender->ReleaseCurrentAction();
-		return;
-	} else {
-		if (!Sender->SpellResRef[0]) {
-			Sender->SetSpellResRef(spellres);
-		}
-	}
-
-	if (Sender->CurrentActionState) {
-		if (Sender->LastTarget) {
-			//if target was set, fire spell
-			Sender->CastSpellEnd(0);
-		} else if(!Sender->LastTargetPos.isempty()) {
-			//the target was converted to a point
-			Sender->CastSpellPointEnd(0);
-		} else {
-			printMessage("GameScript", "SpellNoDec lost target somewhere!", LIGHT_RED);
-		}
-		Sender->ReleaseCurrentAction();
-		return;
-	}
-
-	//parse target
-	Scriptable* tar = GetStoredActorFromObject( Sender, parameters->objects[1] );
-	if (!tar) {
-		Sender->ReleaseCurrentAction();
-		return;
-	}
-
-	//face target
-	if (Sender->Type==ST_ACTOR) {
-		Actor *act = (Actor *) Sender;
-		if (tar != Sender) {
-			act->SetOrientation( GetOrient( tar->Pos, act->Pos ), false );
-		}
-
-		//stop doing anything else
-		act->SetModal(MS_NONE);
-	}
-	Sender->CurrentActionState = 1;
-	int duration = Sender->CastSpell( spellres, tar, false );
-	if (duration != -1) Sender->SetWait(duration);
-
-	//if target was set, feed action back
-	if (!Sender->LastTarget && Sender->LastTargetPos.isempty()) {
-		Sender->ReleaseCurrentAction();
-	}
+	SpellCore(Sender, parameters, SC_NO_DEAD|SC_RANGE_CHECK|SC_AURA_CHECK);
 }
 
 //spell is not depleted (doesn't need to be memorised or known)
@@ -2753,46 +2592,7 @@ void GameScript::SpellNoDec(Scriptable* Sender, Action* parameters)
 //FIXME The caster must meet the level requirements as set in the spell file
 void GameScript::SpellPointNoDec(Scriptable* Sender, Action* parameters)
 {
-	ieResRef spellres;
-
-	//resolve spellname
-	if (!ResolveSpellName( spellres, parameters) ) {
-		Sender->ReleaseCurrentAction();
-		return;
-	} else {
-		if (!Sender->SpellResRef[0]) {
-			Sender->SetSpellResRef(spellres);
-		}
-	}
-
-	if (Sender->CurrentActionState) {
-		if(!Sender->LastTargetPos.isempty()) {
-			//if target was set, fire spell
-			Sender->CastSpellPointEnd(0);
-		} else {
-			printMessage("GameScript", "SpellPointNoDec lost target somewhere!", LIGHT_RED);
-		}
-		Sender->ReleaseCurrentAction();
-		return;
-	}
-
-	//face target
-	if (Sender->Type==ST_ACTOR) {
-		Actor *act = (Actor *) Sender;
-		act->SetOrientation( GetOrient( parameters->pointParameter, act->Pos ), false );
-
-		//stop doing anything else
-		act->SetModal(MS_NONE);
-	}
-
-	Sender->CurrentActionState = 1;
-	int duration = Sender->CastSpellPoint( spellres, parameters->pointParameter, false );
-	if (duration != -1) Sender->SetWait(duration);
-
-	//if target was set, feed action back
-	if (Sender->LastTargetPos.isempty()) {
-		Sender->ReleaseCurrentAction();
-	}
+	SpellPointCore(Sender, parameters, SC_RANGE_CHECK|SC_AURA_CHECK);
 }
 
 //spell is not depleted (doesn't need to be memorised or known)
@@ -2800,57 +2600,12 @@ void GameScript::SpellPointNoDec(Scriptable* Sender, Action* parameters)
 //FIXME The caster must meet the level requirements as set in the spell file
 void GameScript::ForceSpell(Scriptable* Sender, Action* parameters)
 {
-	ieResRef spellres;
+	SpellCore(Sender, parameters, SC_NOINTERRUPT);
+}
 
-	//resolve spellname
-	if (!ResolveSpellName( spellres, parameters) ) {
-		Sender->ReleaseCurrentAction();
-		return;
-	} else {
-		if (!Sender->SpellResRef[0]) {
-			Sender->SetSpellResRef(spellres);
-		}
-	}
-
-	if (Sender->CurrentActionState) {
-		if (Sender->LastTarget) {
-			//if target was set, fire spell
-			Sender->CastSpellEnd(0);
-		} else if(!Sender->LastTargetPos.isempty()) {
-			//the target was converted to a point
-			Sender->CastSpellPointEnd(0);
-		} else {
-			printMessage("GameScript", "ForceSpell lost target somewhere!", LIGHT_RED);
-		}
-		Sender->ReleaseCurrentAction();
-		return;
-	}
-
-	//parse target
-	Scriptable* tar = GetStoredActorFromObject( Sender, parameters->objects[1] );
-	if (!tar) {
-		Sender->ReleaseCurrentAction();
-		return;
-	}
-
-	//face target
-	if (Sender->Type==ST_ACTOR) {
-		Actor *act = (Actor *) Sender;
-		if (tar != Sender) {
-			act->SetOrientation( GetOrient( tar->Pos, act->Pos ), false );
-		}
-
-		//stop doing anything else
-		act->SetModal(MS_NONE);
-	}
-	Sender->CurrentActionState = 1;
-	int duration = Sender->CastSpell (spellres, tar, false);
-	if (duration != -1) Sender->SetWait(duration);
-
-	//if target was set, feed action back
-	if (!Sender->LastTarget && Sender->LastTargetPos.isempty()) {
-		Sender->ReleaseCurrentAction();
-	}
+void GameScript::ForceSpellRange(Scriptable* Sender, Action* parameters)
+{
+	SpellCore(Sender, parameters, SC_NOINTERRUPT|SC_RANGE_CHECK);
 }
 
 //spell is not depleted (doesn't need to be memorised or known)
@@ -2858,89 +2613,20 @@ void GameScript::ForceSpell(Scriptable* Sender, Action* parameters)
 //FIXME The caster must meet the level requirements as set in the spell file
 void GameScript::ForceSpellPoint(Scriptable* Sender, Action* parameters)
 {
-	ieResRef spellres;
+	SpellPointCore(Sender, parameters, SC_NOINTERRUPT);
+}
 
-	if (!ResolveSpellName( spellres, parameters) ) {
-		Sender->ReleaseCurrentAction();
-		return;
-	} else {
-		if (!Sender->SpellResRef[0]) {
-			Sender->SetSpellResRef(spellres);
-		}
-	}
-
-	if (Sender->CurrentActionState) {
-		if(!Sender->LastTargetPos.isempty()) {
-			//if target was set, fire spell
-			Sender->CastSpellPointEnd(0);
-		} else {
-			printMessage("GameScript", "ForceSpellPoint lost target somewhere!", LIGHT_RED);
-		}
-		Sender->ReleaseCurrentAction();
-		return;
-	}
-
-	//face target
-	if (Sender->Type==ST_ACTOR) {
-		Actor *act = (Actor *) Sender;
-		act->SetOrientation( GetOrient( parameters->pointParameter, act->Pos ), false );
-
-		//stop doing anything else
-		act->SetModal(MS_NONE);
-	}
-
-	Sender->CurrentActionState = 1;
-	int duration = Sender->CastSpellPoint (spellres, parameters->pointParameter, false);
-	if (duration != -1) Sender->SetWait(duration);
-
-	//if target was set, feed action back
-	if (Sender->LastTargetPos.isempty()) {
-		Sender->ReleaseCurrentAction();
-	}
+void GameScript::ForceSpellPointRange(Scriptable* Sender, Action* parameters)
+{
+	SpellPointCore(Sender, parameters, SC_NOINTERRUPT|SC_RANGE_CHECK);
 }
 
 //ForceSpell with zero casting time
 //zero casting time, no depletion, not interruptable
 //FIXME The caster must meet the level requirements as set in the spell file
-//FIXME The spell level is taken as parameter2 in some cases (FIXED)
 void GameScript::ReallyForceSpell(Scriptable* Sender, Action* parameters)
 {
-	ieResRef spellres;
-	int level;
-
-	if (!ResolveSpellName( spellres, parameters) ) {
-		Sender->ReleaseCurrentAction();
-		return;
-	} else {
-		if (!Sender->SpellResRef[0]) {
-			Sender->SetSpellResRef(spellres);
-		}
-	}
-
-	Scriptable* tar = GetActorFromObject( Sender, parameters->objects[1] );
-	if (!tar) {
-		Sender->ReleaseCurrentAction();
-		return;
-	}
-	if (Sender->Type == ST_ACTOR) {
-		Actor *actor = (Actor *) Sender;
-		if (tar != Sender) {
-			actor->SetOrientation( GetOrient( tar->Pos, actor->Pos ), false );
-		}
-		actor->SetStance (IE_ANI_CONJURE);
-	}
-	Sender->CastSpell (spellres, tar, false, true);
-	if (parameters->string0Parameter[0]) {
-		level = parameters->int0Parameter;
-	} else {
-		level = parameters->int1Parameter;
-	}
-	if (tar->Type==ST_ACTOR) {
-		Sender->CastSpellEnd(level);
-	} else {
-		Sender->CastSpellPointEnd(level);
-	}
-	Sender->ReleaseCurrentAction();
+	SpellCore(Sender, parameters, SC_NOINTERRUPT|SC_SETLEVEL|SC_INSTANT);
 }
 
 //ForceSpellPoint with zero casting time
@@ -2949,85 +2635,66 @@ void GameScript::ReallyForceSpell(Scriptable* Sender, Action* parameters)
 //FIXME The caster must meet the level requirements as set in the spell file
 void GameScript::ReallyForceSpellPoint(Scriptable* Sender, Action* parameters)
 {
-	ieResRef spellres;
-	int level;
-
-	if (!ResolveSpellName( spellres, parameters) ) {
-		Sender->ReleaseCurrentAction();
-		return;
-	} else {
-		if (!Sender->SpellResRef[0]) {
-			Sender->SetSpellResRef(spellres);
-		}
-	}
-
-	//Sender->LastTargetPos=parameters->pointParameter;
-	if (Sender->Type == ST_ACTOR) {
-		if (Sender->GetInternalFlag()&IF_STOPATTACK) {
-			Sender->ReleaseCurrentAction();
-			return;
-		}
-		Actor *actor = (Actor *) Sender;
-		actor->SetOrientation( GetOrient( parameters->pointParameter, actor->Pos ), false );
-		actor->SetStance (IE_ANI_CONJURE);
-	}
-	Sender->CastSpellPoint (spellres, parameters->pointParameter, false, true);
-	if (parameters->string0Parameter[0]) {
-		level = parameters->int0Parameter;
-	} else {
-		level = parameters->int1Parameter;
-	}
-	Sender->CastSpellPointEnd(level);
-	Sender->ReleaseCurrentAction();
+	SpellPointCore(Sender, parameters, SC_NOINTERRUPT|SC_SETLEVEL|SC_INSTANT);
 }
 
 // this differs from ReallyForceSpell that this one allows dead Sender casting
 // zero casting time, no depletion
 void GameScript::ReallyForceSpellDead(Scriptable* Sender, Action* parameters)
 {
-	ieResRef spellres;
-	int level;
+	// the difference from ReallyForceSpell is handled by the lack of AF_ALIVE being set
+	SpellCore(Sender, parameters, SC_NOINTERRUPT|SC_SETLEVEL|SC_INSTANT);
+}
 
-	if (!ResolveSpellName( spellres, parameters) ) {
-		Sender->ReleaseCurrentAction();
-		return;
-	} else {
-		if (!Sender->SpellResRef[0]) {
-			Sender->SetSpellResRef(spellres);
-		}
-	}
-
+void GameScript::Activate(Scriptable* Sender, Action* parameters)
+{
 	Scriptable* tar = GetActorFromObject( Sender, parameters->objects[1] );
 	if (!tar) {
-		Sender->ReleaseCurrentAction();
+		//it could still be an area animation, PST allows deactivating them via Activate
+		AmbientActivateCore(Sender, parameters, 1);
 		return;
 	}
-	Sender->LastTargetPos=parameters->pointParameter;
-	
-	Sender->CastSpell (spellres, tar, false, true);
-	if (parameters->string0Parameter[0]) {
-		level = parameters->int0Parameter;
-	} else {
-		level = parameters->int1Parameter;
+	if (tar->Type == ST_ACTOR) {
+		tar->Unhide();
+		return;
 	}
-	if (tar->Type==ST_ACTOR) {
-		Sender->CastSpellEnd(level);
-	} else {
-		Sender->CastSpellPointEnd(level);
+
+	//PST allows activating of containers
+	if (tar->Type == ST_CONTAINER) {
+		((Container *) tar)->Flags&=~CONT_DISABLED;
+		return;
 	}
-	Sender->ReleaseCurrentAction();
+
+	//and regions
+	if (tar->Type == ST_PROXIMITY || tar->Type == ST_TRAVEL || tar->Type==ST_TRIGGER) {
+		((InfoPoint *) tar)->Flags&=~TRAP_DEACTIVATED;
+		return;
+	}
 }
 
 void GameScript::Deactivate(Scriptable* Sender, Action* parameters)
 {
 	Scriptable* tar = GetActorFromObject( Sender, parameters->objects[1] );
 	if (!tar) {
+		//it could still be an area animation, PST allows deactivating them via Deactivate
+		AmbientActivateCore(Sender, parameters, 0);
 		return;
 	}
-	if (tar->Type != ST_ACTOR) {
+	if (tar->Type == ST_ACTOR) {
+		tar->Hide();
 		return;
 	}
-	tar->Hide();
+	//PST allows deactivating of containers
+	if (tar->Type == ST_CONTAINER) {
+		((Container *) tar)->Flags|=CONT_DISABLED;
+		return;
+	}
+
+	//and regions
+	if (tar->Type == ST_PROXIMITY || tar->Type == ST_TRAVEL || tar->Type==ST_TRIGGER) {
+		((InfoPoint *) tar)->Flags|=TRAP_DEACTIVATED;
+		return;
+	}
 }
 
 void GameScript::MakeGlobal(Scriptable* Sender, Action* /*parameters*/)
@@ -3106,7 +2773,10 @@ void GameScript::TakePartyGold(Scriptable* Sender, Action* parameters)
 	core->GetGame()->AddGold((ieDword) -(int) gold);
 	if (Sender->Type == ST_ACTOR) {
 		Actor* act = ( Actor* ) Sender;
-		act->SetBase(IE_GOLD, act->GetBase(IE_GOLD)+gold);
+		//fixes PST limlim shop, partymembers don't receive the taken gold
+		if (!act->InParty) {
+			act->SetBase(IE_GOLD, act->GetBase(IE_GOLD)+gold);
+		}
 	}
 }
 
@@ -3123,11 +2793,12 @@ void GameScript::AddXPObject(Scriptable* Sender, Action* parameters)
 	int xp = parameters->int0Parameter;
 	if (displaymsg->HasStringReference(STR_GOTQUESTXP)) {
 		core->GetTokenDictionary()->SetAtCopy("EXPERIENCEAMOUNT", xp);
-		displaymsg->DisplayConstantStringName(STR_GOTQUESTXP, 0xbcefbc, actor);
+		displaymsg->DisplayConstantStringName(STR_GOTQUESTXP, DMC_BG2XPGREEN, actor);
 	} else {
-		displaymsg->DisplayConstantStringValue(STR_GOTXP, 0xbcefbc, (ieDword)xp);
+		displaymsg->DisplayConstantStringValue(STR_GOTXP, DMC_BG2XPGREEN, (ieDword)xp);
 	}
 	actor->AddExperience(xp);
+	core->PlaySound(DS_GOTXP);
 }
 
 void GameScript::AddXP2DA(Scriptable* /*Sender*/, Action* parameters)
@@ -3141,7 +2812,7 @@ void GameScript::AddXP2DA(Scriptable* /*Sender*/, Action* parameters)
 	}
 
 	if (parameters->int0Parameter>0) {
-		displaymsg->DisplayString(parameters->int0Parameter, 0x40f0f000,IE_STR_SOUND);
+		displaymsg->DisplayString(parameters->int0Parameter, DMC_BG2XPGREEN, IE_STR_SOUND);
 	}
 	if (!xptable) {
 		printMessage("GameScript","Can't perform ADDXP2DA",LIGHT_RED);
@@ -3156,11 +2827,13 @@ void GameScript::AddXP2DA(Scriptable* /*Sender*/, Action* parameters)
 		//give xp everyone
 		core->GetGame()->ShareXP(atoi(xpvalue), 0 );
 	}
+	core->PlaySound(DS_GOTXP);
 }
 
 void GameScript::AddExperienceParty(Scriptable* /*Sender*/, Action* parameters)
 {
 	core->GetGame()->ShareXP(parameters->int0Parameter, SX_DIVIDE);
+	core->PlaySound(DS_GOTXP);
 }
 
 //this needs moncrate.2da, but otherwise independent from GF_CHALLENGERATING
@@ -3173,6 +2846,7 @@ void GameScript::AddExperiencePartyGlobal(Scriptable* Sender, Action* parameters
 {
 	ieDword xp = CheckVariable( Sender, parameters->string0Parameter, parameters->string1Parameter );
 	core->GetGame()->ShareXP(xp, SX_DIVIDE);
+	core->PlaySound(DS_GOTXP);
 }
 
 void GameScript::SetMoraleAI(Scriptable* Sender, Action* parameters)
@@ -3308,17 +2982,6 @@ void GameScript::ForceHide(Scriptable* Sender, Action* parameters)
 	}
 	Actor* actor = ( Actor* ) tar;
 	actor->BaseStats[IE_AVATARREMOVAL]=1;
-}
-
-void GameScript::Activate(Scriptable* Sender, Action* parameters)
-{
-	Scriptable* tar = GetActorFromObject( Sender, parameters->objects[1] );
-	if (!tar || tar->Type != ST_ACTOR) {
-		return;
-	}
-	// Deactivate hides, so this should unhide..
-	//tar->Activate();
-	tar->Unhide();
 }
 
 void GameScript::ForceLeaveAreaLUA(Scriptable* Sender, Action* parameters)
@@ -3813,19 +3476,16 @@ void GameScript::SetLeavePartyDialogFile(Scriptable* Sender, Action* /*parameter
 	}
 }
 
-void GameScript::TextScreen(Scriptable* Sender, Action* parameters)
+void GameScript::TextScreen(Scriptable* /*Sender*/, Action* parameters)
 {
 	strnlwrcpy(core->GetGame()->LoadMos, parameters->string0Parameter, sizeof(ieResRef)-1);
-	core->GetGUIScriptEngine()->RunFunction( "TextScreen", "StartTextScreen" );
-	core->GetVideoDriver()->SetMouseEnabled(true);
-	Sender->SetWait(1);
-	Sender->ReleaseCurrentAction(); // should this be blocking?
+	core->SetEventFlag(EF_TEXTSCREEN);
 }
 
 void GameScript::IncrementChapter(Scriptable* Sender, Action* parameters)
 {
-	TextScreen(Sender, parameters); // textscreen will release blocking for us
 	core->GetGame()->IncrementChapter();
+	TextScreen(Sender, parameters);
 }
 
 void GameScript::SetCriticalPathObject(Scriptable* Sender, Action* parameters)
@@ -4195,7 +3855,7 @@ void GameScript::RemovePaladinHood(Scriptable* Sender, Action* /*parameters*/)
 	Actor *act = (Actor *) Sender;
 	act->ApplyKit(true);
 	act->SetMCFlag(MC_FALLEN_PALADIN, BM_OR);
-	if (act->InParty) displaymsg->DisplayConstantStringName(STR_PALADIN_FALL, 0xbcefbc, act);
+	if (act->InParty) displaymsg->DisplayConstantStringName(STR_PALADIN_FALL, DMC_BG2XPGREEN, act);
 }
 
 void GameScript::RemoveRangerHood(Scriptable* Sender, Action* /*parameters*/)
@@ -4206,7 +3866,7 @@ void GameScript::RemoveRangerHood(Scriptable* Sender, Action* /*parameters*/)
 	Actor *act = (Actor *) Sender;
 	act->ApplyKit(true);
 	act->SetMCFlag(MC_FALLEN_RANGER, BM_OR);
-	if (act->InParty) displaymsg->DisplayConstantStringName(STR_RANGER_FALL, 0xbcefbc, act);
+	if (act->InParty) displaymsg->DisplayConstantStringName(STR_RANGER_FALL, DMC_BG2XPGREEN, act);
 }
 
 void GameScript::RegainPaladinHood(Scriptable* Sender, Action* /*parameters*/)
@@ -4335,9 +3995,9 @@ void GameScript::CreateItem(Scriptable *Sender, Action* parameters)
 			Map *map=tar->GetCurrentArea();
 			// drop it at my feet
 			map->AddItemToLocation(tar->Pos, item);
-			if (((Actor *)tar)->InParty) displaymsg->DisplayConstantString(STR_INVFULL_ITEMDROP, 0xbcefbc);
+			if (((Actor *)tar)->InParty) displaymsg->DisplayConstantString(STR_INVFULL_ITEMDROP, DMC_BG2XPGREEN);
 		} else {
-			if (((Actor *)tar)->InParty) displaymsg->DisplayConstantString(STR_GOTITEM, 0xbcefbc);
+			if (((Actor *)tar)->InParty) displaymsg->DisplayConstantString(STR_GOTITEM, DMC_BG2XPGREEN);
 		}
 	}
 }
@@ -4369,9 +4029,9 @@ void GameScript::CreateItemNumGlobal(Scriptable *Sender, Action* parameters)
 			Map *map=Sender->GetCurrentArea();
 			// drop it at my feet
 			map->AddItemToLocation(Sender->Pos, item);
-			if (((Actor *)Sender)->InParty) displaymsg->DisplayConstantString(STR_INVFULL_ITEMDROP, 0xbcefbc);
+			if (((Actor *)Sender)->InParty) displaymsg->DisplayConstantString(STR_INVFULL_ITEMDROP, DMC_BG2XPGREEN);
 		} else {
-			if (((Actor *)Sender)->InParty) displaymsg->DisplayConstantString(STR_GOTITEM, 0xbcefbc);
+			if (((Actor *)Sender)->InParty) displaymsg->DisplayConstantString(STR_GOTITEM, DMC_BG2XPGREEN);
 		}
 	}
 }
@@ -4644,7 +4304,7 @@ void GameScript::PickPockets(Scriptable *Sender, Action* parameters)
 	}
 
 	if (scr->GetStat(IE_EA)>EA_EVILCUTOFF) {
-		displaymsg->DisplayConstantString(STR_PICKPOCKET_EVIL,0xffffff);
+		displaymsg->DisplayConstantString(STR_PICKPOCKET_EVIL, DMC_WHITE);
 		Sender->ReleaseCurrentAction();
 		return;
 	}
@@ -4662,7 +4322,7 @@ void GameScript::PickPockets(Scriptable *Sender, Action* parameters)
 	//and change this 50 to 0.
 	if (skill<50) {
 		//noticed attempt
-		displaymsg->DisplayConstantString(STR_PICKPOCKET_FAIL,0xffffff);
+		displaymsg->DisplayConstantString(STR_PICKPOCKET_FAIL, DMC_WHITE);
 		if (core->HasFeature(GF_STEAL_IS_ATTACK) ) {
 			tar->AddTrigger(TriggerEntry(trigger_attackedby, snd->GetGlobalID()));
 			tar->LastAttacker = snd->GetGlobalID(); // FIXME
@@ -4695,7 +4355,7 @@ void GameScript::PickPockets(Scriptable *Sender, Action* parameters)
 		}
 		if (!money) {
 			//no stuff to steal
-			displaymsg->DisplayConstantString(STR_PICKPOCKET_NONE,0xffffff);
+			displaymsg->DisplayConstantString(STR_PICKPOCKET_NONE, DMC_WHITE);
 			Sender->ReleaseCurrentAction();
 			return;
 		}
@@ -4708,13 +4368,13 @@ void GameScript::PickPockets(Scriptable *Sender, Action* parameters)
 		} else {
 			// drop it at my feet
 			map->AddItemToLocation(Sender->Pos, item);
-			if (((Actor *)Sender)->InParty) displaymsg->DisplayConstantString(STR_INVFULL_ITEMDROP, 0xbcefbc);
+			if (((Actor *)Sender)->InParty) displaymsg->DisplayConstantString(STR_INVFULL_ITEMDROP, DMC_BG2XPGREEN);
 			Sender->ReleaseCurrentAction();
 			return;
 		}
 	}
 
-	displaymsg->DisplayConstantString(STR_PICKPOCKET_DONE,0xffffff);
+	displaymsg->DisplayConstantString(STR_PICKPOCKET_DONE, DMC_WHITE);
 	DisplayStringCore(snd, VB_PP_SUCC, DS_CONSOLE|DS_CONST );
 	Sender->ReleaseCurrentAction();
 }
@@ -4967,7 +4627,7 @@ void GameScript::RevealAreaOnMap(Scriptable* /*Sender*/, Action* parameters)
 	}
 	// WMP_ENTRY_ADJACENT because otherwise revealed bg2 areas are unreachable from city gates
 	worldmap->SetAreaStatus(parameters->string0Parameter, WMP_ENTRY_VISIBLE|WMP_ENTRY_ADJACENT, BM_OR);
-	displaymsg->DisplayConstantString(STR_WORLDMAPCHANGE, 0xc8ffc8);
+	displaymsg->DisplayConstantString(STR_WORLDMAPCHANGE, DMC_BG2XPGREEN);
 }
 
 void GameScript::HideAreaOnMap( Scriptable* /*Sender*/, Action* parameters)
@@ -5057,12 +4717,7 @@ void GameScript::AttackOneRound( Scriptable* Sender, Action* parameters)
 	}
 	//using auto target!
 	Scriptable* tar;
-	/*if (!parameters->objects[1]) {
-		GameControl *gc = core->GetGameControl();
-		tar = gc->GetTarget();
-	} else {*/
-		tar = GetStoredActorFromObject( Sender, parameters->objects[1], GA_NO_DEAD );
-	/*}*/
+	tar = GetStoredActorFromObject( Sender, parameters->objects[1], GA_NO_DEAD );
 	if (!tar || (tar->Type != ST_ACTOR && tar->Type !=ST_DOOR && tar->Type !=ST_CONTAINER) ) {
 		Sender->ReleaseCurrentAction();
 		return;
@@ -5095,12 +4750,7 @@ void GameScript::RunningAttackNoSound( Scriptable* Sender, Action* parameters)
 	}
 	//using auto target!
 	Scriptable* tar;
-	/*if (!parameters->objects[1]) {
-		GameControl *gc = core->GetGameControl();
-		tar = gc->GetTarget();
-	} else {*/
-		tar = GetStoredActorFromObject( Sender, parameters->objects[1], GA_NO_DEAD );
-	/*}*/
+	tar = GetStoredActorFromObject( Sender, parameters->objects[1], GA_NO_DEAD );
 	if (!tar || (tar->Type != ST_ACTOR && tar->Type !=ST_DOOR && tar->Type !=ST_CONTAINER) ) {
 		Sender->ReleaseCurrentAction();
 		return;
@@ -5123,12 +4773,7 @@ void GameScript::AttackNoSound( Scriptable* Sender, Action* parameters)
 	}
 	//using auto target!
 	Scriptable* tar;
-	/*if (!parameters->objects[1]) {
-		GameControl *gc = core->GetGameControl();
-		tar = gc->GetTarget();
-	} else {*/
-		tar = GetStoredActorFromObject( Sender, parameters->objects[1], GA_NO_DEAD );
-	/*}*/
+	tar = GetStoredActorFromObject( Sender, parameters->objects[1], GA_NO_DEAD );
 	if (!tar || (tar->Type != ST_ACTOR && tar->Type !=ST_DOOR && tar->Type !=ST_CONTAINER) ) {
 		Sender->ReleaseCurrentAction();
 		return;
@@ -5151,12 +4796,7 @@ void GameScript::RunningAttack( Scriptable* Sender, Action* parameters)
 	}
 	//using auto target!
 	Scriptable* tar;
-	/*if (!parameters->objects[1]) {
-		GameControl *gc = core->GetGameControl();
-		tar = gc->GetTarget();
-	} else {*/
-		tar = GetStoredActorFromObject( Sender, parameters->objects[1], GA_NO_DEAD );
-	/*}*/
+	tar = GetStoredActorFromObject( Sender, parameters->objects[1], GA_NO_DEAD );
 	if (!tar || (tar->Type != ST_ACTOR && tar->Type !=ST_DOOR && tar->Type !=ST_CONTAINER) ) {
 		Sender->ReleaseCurrentAction();
 		return;
@@ -5370,7 +5010,7 @@ void GameScript::DayNight(Scriptable* /*Sender*/, Action* parameters)
 void GameScript::RestParty(Scriptable* Sender, Action* parameters)
 {
 	Game *game = core->GetGame();
-	game->RestParty(REST_NOAREA|REST_NOMOVE|REST_NOCRITTER, parameters->int0Parameter, parameters->int1Parameter);
+	game->RestParty(REST_NOAREA|REST_NOMOVE|REST_NOCRITTER|REST_NOSCATTER, parameters->int0Parameter, parameters->int1Parameter);
 	Sender->ReleaseCurrentAction();
 }
 
@@ -5400,9 +5040,10 @@ void GameScript::RestNoSpells(Scriptable* Sender, Action* /*parameters*/)
 	actor->fxqueue.RemoveExpiredEffects(0xffffffff);
 }
 
-//this is most likely advances time
+//this most likely advances time and heals whole party
 void GameScript::RestUntilHealed(Scriptable* Sender, Action* /*parameters*/)
 {
+/*
 	if (Sender->Type!=ST_ACTOR) {
 		return;
 	}
@@ -5410,6 +5051,9 @@ void GameScript::RestUntilHealed(Scriptable* Sender, Action* /*parameters*/)
 	actor->Heal(1);
 	//not sure if this should remove timed effects
 	//more like execute them hour by hour :>
+*/
+	core->GetGame()->RestParty(REST_NOSCATTER, 0, 0);
+	Sender->ReleaseCurrentAction();
 }
 
 //iwd2
@@ -5660,7 +5304,7 @@ void GameScript::UseContainer(Scriptable* Sender, Action* /*parameters*/)
 		if (!container->TryUnlock(actor)) {
 			//playsound can't open container
 			//display string, etc
-			displaymsg->DisplayConstantString(STR_CONTLOCKED,0xd7d7be,container);
+			displaymsg->DisplayConstantString(STR_CONTLOCKED, DMC_LIGHTGREY, container);
 			Sender->ReleaseCurrentAction();
 			return;
 		}
@@ -5915,7 +5559,7 @@ void GameScript::ExportParty(Scriptable* /*Sender*/, Action* parameters)
 		snprintf(FileName,_MAX_PATH,"%s%d",parameters->string0Parameter,i+1);
 		core->WriteCharacter(FileName, actor);
 	}
-	displaymsg->DisplayConstantString(STR_EXPORTED, 0xbcefbc);
+	displaymsg->DisplayConstantString(STR_EXPORTED, DMC_BG2XPGREEN);
 }
 
 void GameScript::SaveGame(Scriptable* /*Sender*/, Action* parameters)
@@ -6282,7 +5926,7 @@ void GameScript::PauseGame(Scriptable* Sender, Action* /*parameters*/)
 	GameControl *gc = core->GetGameControl();
 	if (gc) {
 		gc->SetDialogueFlags(DF_FREEZE_SCRIPTS, BM_OR);
-		displaymsg->DisplayConstantString(STR_SCRIPTPAUSED,0xff0000);
+		displaymsg->DisplayConstantString(STR_SCRIPTPAUSED, DMC_RED);
 	}
 	// releasing this action allows actions to continue executing,
 	// so we force a wait

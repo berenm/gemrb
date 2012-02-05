@@ -245,7 +245,7 @@ void Inventory::CalculateWeight()
 			slot->Flags &= ~IE_INV_ITEM_ACQUIRED;
 		}
 		if (slot->Weight > 0) {
-			Weight += slot->Weight * ((slot->Usages[0] && slot->MaxStackAmount > 1) ? slot->Usages[0] : 1);
+			Weight += slot->Weight * ((slot->Usages[0] && slot->MaxStackAmount) ? slot->Usages[0] : 1);
 		}
 	}
 	Changed = false;
@@ -529,7 +529,7 @@ unsigned int Inventory::DestroyItem(const char *resref, ieDword flags, ieDword c
 		if (count && (destructed>=count) )
 			break;
 	}
-	if (Changed && Owner && Owner->InParty) displaymsg->DisplayConstantString(STR_LOSTITEM, 0xbcefbc);
+	if (Changed && Owner && Owner->InParty) displaymsg->DisplayConstantString(STR_LOSTITEM, DMC_BG2XPGREEN);
 
 	return destructed;
 }
@@ -637,29 +637,7 @@ int Inventory::AddSlotItem(CREItem* item, int slot, int slottype)
 			return ASI_SUCCESS;
 		}
 
-		CREItem *myslot = Slots[slot];
-		if (myslot->MaxStackAmount > 1 && ItemsAreCompatible(myslot, item)) {
-			//calculate with the max movable stock
-			int chunk = item->Usages[0];
-			if (myslot->Usages[0] + chunk > myslot->MaxStackAmount) {
-				chunk = myslot->MaxStackAmount - myslot->Usages[0];
-			}
-			if (!chunk) {
-				return ASI_FAILED;
-			}
-			assert(chunk > 0);
-			myslot->Flags |= IE_INV_ITEM_ACQUIRED;
-			myslot->Usages[0] = (ieWord) (myslot->Usages[0] + chunk);
-			item->Usages[0] = (ieWord) (item->Usages[0] - chunk);
-			Changed = true;
-			EquipItem(slot);
-			if (item->Usages[0] == 0) {
-				delete item;
-				return ASI_SUCCESS;
-			}
-			return ASI_PARTIAL;
-		}
-		return ASI_FAILED;
+		return MergeItems(slot, item);
 	}
 
 	bool which;
@@ -1399,7 +1377,18 @@ void Inventory::AddSlotItemRes(const ieResRef ItemResRef, int SlotID, int Charge
 	TmpItem->Usages[2]=(ieWord) Charge2;
 	TmpItem->Flags=0;
 	if (core->ResolveRandomItem(TmpItem)) {
-		AddSlotItem( TmpItem, SlotID );
+		int ret = AddSlotItem( TmpItem, SlotID );
+		if (ret != ASI_SUCCESS) {
+			// put the remainder on the ground
+			Map *area = core->GetGame()->GetCurrentArea();
+			if (area) {
+				// create or reuse the existing pile
+				area->AddItemToLocation(Owner->Pos, TmpItem);
+			} else {
+				printMessage("Inventory", "AddSlotItemRes: argh, no area and the inventory is full, bailing out!\n", LIGHT_RED);
+				delete TmpItem;
+			}
+		}
 	} else {
 		delete TmpItem;
 	}
@@ -1853,4 +1842,31 @@ bool Inventory::ProvidesCriticalAversion()
 		}
 	}
 	return false;
+}
+
+int Inventory::MergeItems(int slot, CREItem *item)
+{
+	CREItem *slotitem = Slots[slot];
+	if (slotitem->MaxStackAmount && ItemsAreCompatible(slotitem, item)) {
+		//calculate with the max movable stock
+		int chunk = item->Usages[0];
+		if (slotitem->Usages[0] + chunk > slotitem->MaxStackAmount) {
+			chunk = slotitem->MaxStackAmount - slotitem->Usages[0];
+		}
+		if (chunk<=0) {
+			return ASI_FAILED;
+		}
+
+		slotitem->Flags |= IE_INV_ITEM_ACQUIRED;
+		slotitem->Usages[0] = (ieWord) (slotitem->Usages[0] + chunk);
+		item->Usages[0] = (ieWord) (item->Usages[0] - chunk);
+		Changed = true;
+		EquipItem(slot);
+		if (item->Usages[0] == 0) {
+			delete item;
+			return ASI_SUCCESS;
+		}
+		return ASI_PARTIAL;
+	}
+	return ASI_FAILED;
 }

@@ -43,6 +43,8 @@ TextArea::TextArea(Color hitextcolor, Color initcolor, Color lowtextcolor)
 {
 	keeplines = 100;
 	rows = 0;
+	smooth = 0;
+	TextYPos = 0;
 	startrow = 0;
 	minrow = 0;
 	Cursor = NULL;
@@ -222,9 +224,16 @@ void TextArea::Draw(unsigned short x, unsigned short y)
 		} else {
 			pos = -1;
 		}
-		ftext->PrintFromLine( startrow, clip,
-			( unsigned char * ) Buffer, palette,
-			IE_FONT_ALIGN_LEFT, finit, Cursor, pos );
+
+		/* lets fake scrolling the text by simply offsetting the textClip by between 0 and maxHeight pixels.
+			don't forget to increase the clipping height by the same amount */
+		short LineOffset = (short)(TextYPos % ftext->maxHeight);
+		Region textClip(clip.x, clip.y - LineOffset, clip.w, clip.h + LineOffset);
+
+
+		ftext->PrintFromLine( startrow, textClip,
+							 ( unsigned char * ) Buffer, palette,
+							 IE_FONT_ALIGN_LEFT, finit, Cursor, pos );
 		free( Buffer );
 		video->SetClipRect( NULL );
 		//streaming text
@@ -662,11 +671,34 @@ int TextArea::GetTopIndex()
 	return startrow;
 }
 
+int TextArea::GetRowHeight()
+{
+	return ftext->maxHeight;
+}
+
+/** Will scroll y pixels. sender is the control requesting the scroll (ie the scrollbar) */
+void TextArea::ScrollToY(unsigned long y, Control* sender)
+{
+	if (sb && sender != sb) {
+		// we must "scale" the pixels
+		((ScrollBar*)sb)->SetPosForY(y * (((ScrollBar*)sb)->GetStep() / (double)ftext->maxHeight));
+		// sb->SetPosForY will recall this method so we dont need to do more... yet.
+	}else if(sb){
+		// our scrollbar has set position for us
+		TextYPos = y;
+	}else{
+		// no scrollbar. need to call SetRow myself.
+		// SetRow will set TextYPos.
+		SetRow( y / ftext->maxHeight );
+	}
+}
+
 /** Set Starting Row */
 void TextArea::SetRow(int row)
 {
 	if (row < rows) {
 		startrow = row;
+		TextYPos = row * ftext->maxHeight;
 	}
 	Changed = true;
 }
@@ -758,6 +790,17 @@ void TextArea::CalcRowCount()
 	}
 	bar->SetMax( (ieWord) tr );
 }
+
+/** Mousewheel scroll */
+/** This method is key to touchscreen scrolling */
+void TextArea::OnMouseWheelScroll(short /*x*/, short y)
+{
+	unsigned long fauxY = TextYPos;
+	if ((long)fauxY + y <= 0) fauxY = 0;
+	else fauxY += y;
+	ScrollToY(fauxY, this);
+}
+
 /** Mouse Over Event */
 void TextArea::OnMouseOver(unsigned short /*x*/, unsigned short y)
 {

@@ -90,30 +90,10 @@ static void FindBIF(BIFEntry *entry)
 		return;
 	}
 
-	if (core->GameOnCD) {
-		int mask = 1<<2;
-		for(int cd = 1; cd<=MAX_CD; cd++) {
-			if ((entry->BIFLocator & mask) != 0) {
-				entry->cd = cd;
-				break;
-			}
-			mask += mask;
-		}
-
-		if (!entry->cd) {
-			printStatus( "ERROR", LIGHT_RED );
-			print( "Cannot find %s... Resource unavailable.\n",
-					entry->name );
-			entry->found = false;
-			return;
-		}
-		entry->found = PathExists(entry, core->CD[entry->cd-1]);
-		return;
-	}
-
 	for (int i = 0; i < MAX_CD; i++) {
 		if (PathExists(entry, core->CD[i]) ) {
 			entry->found = true;
+			entry->cd = i;
 			return;
 		}
 	}
@@ -143,6 +123,8 @@ bool KEYImporter::Open(const char *resfile, const char *desc)
 		printStatus( "ERROR", LIGHT_RED );
 		printMessage( "KEYImporter", "Cannot open Chitin.key\n", LIGHT_RED );
 		textcolor( WHITE );
+		print("This means you set the GamePath config variable incorrectly.\n");
+		print("It must point to the directory that holds a readable Chitin.key\n");
 		return false;
 	}
 	printStatus( "OK", LIGHT_GREEN );
@@ -169,6 +151,7 @@ bool KEYImporter::Open(const char *resfile, const char *desc)
 	printMessage("KEYImporter", "RES Count: %d (Starting at %d Bytes)\n", WHITE,
 		ResCount, ResOffset);
 	f->Seek( BifOffset, GEM_STREAM_START );
+
 	ieDword BifLen, ASCIIZOffset;
 	ieWord ASCIIZLen;
 	for (i = 0; i < BifCount; i++) {
@@ -190,14 +173,24 @@ bool KEYImporter::Open(const char *resfile, const char *desc)
 		biffiles.push_back( be );
 	}
 	f->Seek( ResOffset, GEM_STREAM_START );
-	resources.InitHashTable( ResCount < 17 ? 17 : ResCount );
+
+	MapKey key;
+	ieDword ResLocator;
+
+	// limit to 32k buckets
+	// only ~1% of the bg2 entries are of bucket lenght >4
+	resources.init(ResCount > 32 * 1024 ? 32 * 1024 : ResCount, ResCount);
+
 	for (i = 0; i < ResCount; i++) {
-		RESEntry re;
-		f->ReadResRef( re.ResRef );
-		f->ReadWord( &re.Type );
-		f->ReadDword( &re.ResLocator );
-		resources.SetAt( re.ResRef, re.Type, re.ResLocator );
+		f->ReadResRef(key.ref);
+		f->ReadWord(&key.type);
+		f->ReadDword(&ResLocator);
+
+		// seems to be always the last entry?
+		if (key.ref[0] != 0)
+			resources.set(key, ResLocator);
 	}
+
 	printMessage( "KEYImporter", "Resources Loaded...", WHITE );
 	printStatus( "OK", LIGHT_GREEN );
 	delete( f );
@@ -206,8 +199,7 @@ bool KEYImporter::Open(const char *resfile, const char *desc)
 
 bool KEYImporter::HasResource(const char* resname, SClass_ID type)
 {
-	unsigned int ResLocator;
-	return resources.Lookup( resname, type, ResLocator );
+	return resources.has(resname, type);
 }
 
 bool KEYImporter::HasResource(const char* resname, const ResourceDesc &type)
@@ -215,48 +207,37 @@ bool KEYImporter::HasResource(const char* resname, const ResourceDesc &type)
 	return HasResource(resname, type.GetKeyType());
 }
 
-static void FindBIFOnCD(BIFEntry *entry)
-{
-	if (file_exists(entry->path)) {
-		entry->found = true;
-		return;
-	}
-
-	core->WaitForDisc(entry->cd, entry->name);
-
-	entry->found = PathExists(entry, core->CD[entry->cd-1]);
-}
-
 DataStream* KEYImporter::GetStream(const char *resname, ieWord type)
 {
-	unsigned int ResLocator;
-
 	if (type == 0)
 		return NULL;
-	if (resources.Lookup( resname, type, ResLocator )) {
-		unsigned int bifnum = ( ResLocator & 0xFFF00000 ) >> 20;
 
-		if (core->GameOnCD && (biffiles[bifnum].cd != 0))
-			FindBIFOnCD(&biffiles[bifnum]);
-		if (!biffiles[bifnum].found) {
-			print( "Cannot find %s... Resource unavailable.\n",
-					biffiles[bifnum].name );
-			return NULL;
-		}
+	const ieDword *ResLocator = resources.get(resname, type);
+	if (!ResLocator)
+		return 0;
 
-		PluginHolder<IndexedArchive> ai(IE_BIF_CLASS_ID);
-		if (ai->OpenArchive( biffiles[bifnum].path ) == GEM_ERROR) {
-			print("Cannot open archive %s\n", biffiles[bifnum].path );
-			return NULL;
-		}
-		DataStream* ret = ai->GetStream( ResLocator, type );
-		if (ret) {
-			strnlwrcpy( ret->filename, resname, 8 );
-			strcat( ret->filename, "." );
-			strcat( ret->filename, core->TypeExt( type ) );
-			return ret;
-		}
+	unsigned int bifnum = ( *ResLocator & 0xFFF00000 ) >> 20;
+
+	if (!biffiles[bifnum].found) {
+		print( "Cannot find %s... Resource unavailable.\n",
+				biffiles[bifnum].name );
+		return NULL;
 	}
+
+	PluginHolder<IndexedArchive> ai(IE_BIF_CLASS_ID);
+	if (ai->OpenArchive( biffiles[bifnum].path ) == GEM_ERROR) {
+		print("Cannot open archive %s\n", biffiles[bifnum].path );
+		return NULL;
+	}
+
+	DataStream* ret = ai->GetStream( *ResLocator, type );
+	if (ret) {
+		strnlwrcpy( ret->filename, resname, 8 );
+		strcat( ret->filename, "." );
+		strcat( ret->filename, core->TypeExt( type ) );
+		return ret;
+	}
+
 	return NULL;
 }
 

@@ -19,8 +19,9 @@
 
 #include "Scriptable/Scriptable.h"
 
-#include "strrefs.h"
 #include "win32def.h"
+#include "strrefs.h"
+#include "ie_cursors.h"
 
 #include "Audio.h"
 #include "DisplayMessage.h"
@@ -38,7 +39,7 @@
 #include "GameScript/GSUtils.h"
 #include "GameScript/Matching.h" // MatchActor
 #include "GUI/GameControl.h"
-#include "GUI/Window.h"
+//#include "GUI/Window.h"
 #include "Scriptable/InfoPoint.h"
 
 #include <cassert>
@@ -91,6 +92,7 @@ Scriptable::Scriptable(ScriptableType type)
 	AdjustedTicks = 0;
 	ScriptTicks = 0;
 	IdleTicks = 0;
+	AuraTicks = 100;
 	TriggerCountdown = 0;
 	Dialog[0] = 0;
 
@@ -111,6 +113,7 @@ Scriptable::Scriptable(ScriptableType type)
 	SpellResRef[0] = 0;
 	LastTarget = 0;
 	LastTargetPos.empty();
+	InterruptCasting = false;
 	locals = new Variables();
 	locals->SetType( GEM_VARIABLES_INT );
 	locals->ParseKey( 1 );
@@ -279,12 +282,6 @@ void Scriptable::DrawOverheadText(const Region &screen)
 	gamedata->FreePalette(palette);
 }
 
-void Scriptable::DelayedEvent()
-{
-	// FIXME: do we need this?
-	// lastRunTime = core->GetGame()->Ticks;
-}
-
 void Scriptable::ImmediateEvent()
 {
 	InternalFlags |= IF_FORCEUPDATE;
@@ -304,12 +301,18 @@ void Scriptable::Update()
 {
 	Ticks++;
 	AdjustedTicks++;
+	AuraTicks++;
+
+	Actor *act = NULL;
+	if (Type == ST_ACTOR) {
+		act = (Actor *) this;
+	}
 
 	if (UnselectableTimer) {
 		UnselectableTimer--;
 		if (!UnselectableTimer) {
-			if (Type == ST_ACTOR) {
-				((Actor *) this)->SetCircleSize();
+			if (act) {
+				act->SetCircleSize();
 			}
 		}
 	}
@@ -317,6 +320,8 @@ void Scriptable::Update()
 	TickScripting();
 
 	ProcessActions();
+
+	InterruptCasting = false;
 }
 
 void Scriptable::TickScripting()
@@ -398,8 +403,8 @@ void Scriptable::ExecuteScript(int scriptCount)
 	}
 
 	bool continuing = false, done = false;
-	for (int i = 0;i<scriptCount;i++) {
-		GameScript *Script = Scripts[i];
+	for (scriptlevel = 0;scriptlevel<scriptCount;scriptlevel++) {
+		GameScript *Script = Scripts[scriptlevel];
 		if (Script) {
 			changed |= Script->Update(&continuing, &done);
 		}
@@ -409,7 +414,7 @@ void Scriptable::ExecuteScript(int scriptCount)
 	}
 
 	if (changed)
-		ClearTriggers();
+		InitTriggers();
 
 	if (Type == ST_ACTOR) {
 		//TODO: add stuff here about idle actions
@@ -426,6 +431,9 @@ void Scriptable::AddAction(Action* aC)
 
 	InternalFlags|=IF_ACTIVE;
 	aC->IncRef();
+	if (actionflags[aC->actionID] & AF_SCRIPTLEVEL) {
+		aC->int0Parameter = scriptlevel;
+	}
 
 	// attempt to handle 'instant' actions, from instant.ids, which run immediately
 	// when added if the action queue is empty, even on actors which are Held/etc
@@ -620,44 +628,8 @@ ieDword Scriptable::GetInternalFlag()
 
 void Scriptable::InitTriggers()
 {
-	//tolist.clear();
-	//bittriggers = 0;
 	triggers.clear();
 }
-
-void Scriptable::ClearTriggers()
-{
-	/*for (TriggerObjects::iterator m = tolist.begin(); m != tolist.end (); m++) {
-		*(*m) = 0;
-	}
-	if (!bittriggers) {
-		return;
-	}
-	if (bittriggers & BT_DIE) {
-		InternalFlags &= ~IF_JUSTDIED;
-	}
-	if (bittriggers & BT_ONCREATION) {
-		InternalFlags &= ~IF_ONCREATION;
-	}
-	if (bittriggers & BT_BECAMEVISIBLE) {
-		InternalFlags &= ~IF_BECAMEVISIBLE;
-	}
-	if (bittriggers & BT_PARTYRESTED) {
-		InternalFlags &= ~IF_PARTYRESTED;
-	}
-	if (bittriggers & BT_WASINDIALOG) {
-		InternalFlags &= ~IF_WASINDIALOG;
-	}
-	if (bittriggers & BT_PARTYRESTED) {
-		InternalFlags &= ~IF_PARTYRESTED;
-	}*/
-	InitTriggers();
-}
-
-/*void Scriptable::SetBitTrigger(ieDword bittrigger)
-{
-	bittriggers |= bittrigger;
-}*/
 
 void Scriptable::AddTrigger(TriggerEntry trigger)
 {
@@ -710,8 +682,6 @@ const TriggerEntry *Scriptable::GetMatchingTrigger(unsigned short id, unsigned i
 	return NULL;
 }
 
-static EffectRef fx_set_invisible_state_ref = { "State:Invisible", -1 };
-
 void Scriptable::CreateProjectile(const ieResRef SpellResRef, ieDword tgt, int level, bool fake)
 {
 	Spell* spl = gamedata->GetSpell( SpellResRef );
@@ -722,12 +692,18 @@ void Scriptable::CreateProjectile(const ieResRef SpellResRef, ieDword tgt, int l
 	int duplicate = 1;
 	if (Type == ST_ACTOR) {
 		caster = (Actor *) this;
+		caster->CureInvisibility();
+		if (spl->Flags&SF_HOSTILE) {
+			caster->CureSanctuary();
+		}
+
 		//FIXME: 1 duplicate is no duplicate, right?
 		duplicate = caster->wildSurgeMods.num_castings;
 		if (!duplicate) {
 			duplicate = 1;
 		}
 	}
+
 	if (core->HasFeature(GF_PST_STATE_FLAGS) && (Type == ST_ACTOR)) {
 		if (caster->GetStat(IE_STATE_ID)&STATE_EE_DUPL) {
 			//seriously, wild surges and EE in the same game?
@@ -745,7 +721,7 @@ void Scriptable::CreateProjectile(const ieResRef SpellResRef, ieDword tgt, int l
 			tct = caster->wildSurgeMods.target_change_type;
 		}
 		if (!caster || !tct || tct == WSTC_ADDTYPE || !caster->wildSurgeMods.projectile_id) {
-			pro = spl->GetProjectile(this, SpellHeader, LastTargetPos);
+			pro = spl->GetProjectile(this, SpellHeader, level, LastTargetPos);
 			if (!pro) {
 				return;
 			}
@@ -774,7 +750,7 @@ void Scriptable::CreateProjectile(const ieResRef SpellResRef, ieDword tgt, int l
 					}
 					// we need to fetch the projectile, so the effect queue is created
 					// (skipped above)
-					pro = spl->GetProjectile(this, SpellHeader, LastTargetPos);
+					pro = spl->GetProjectile(this, SpellHeader, level, LastTargetPos);
 					pro->SetCaster(GetGlobalID(), level);
 					break;
 				case WSTC_ADDTYPE:
@@ -791,7 +767,7 @@ void Scriptable::CreateProjectile(const ieResRef SpellResRef, ieDword tgt, int l
 						}
 					}
 					// we need to refetch the projectile, so the effect queue is created
-					pro = spl->GetProjectile(this, SpellHeader, LastTargetPos);
+					pro = spl->GetProjectile(this, SpellHeader, level, LastTargetPos);
 					pro->SetCaster(GetGlobalID(), level);
 					break;
 				case WSTC_RANDOMIZE:
@@ -820,7 +796,7 @@ void Scriptable::CreateProjectile(const ieResRef SpellResRef, ieDword tgt, int l
 					}
 					// we need to fetch the projectile, so the effect queue is created
 					// (skipped above)
-					pro = spl->GetProjectile(this, SpellHeader, LastTargetPos);
+					pro = spl->GetProjectile(this, SpellHeader, level, LastTargetPos);
 					pro->SetCaster(GetGlobalID(), level);
 					break;
 				default: //0 - do nothing
@@ -847,7 +823,7 @@ void Scriptable::CreateProjectile(const ieResRef SpellResRef, ieDword tgt, int l
 					}
 				}
 				// we need to refetch the projectile, so the new one is used
-				pro = spl->GetProjectile(this, SpellHeader, LastTargetPos);
+				pro = spl->GetProjectile(this, SpellHeader, level, LastTargetPos);
 				pro->SetCaster(GetGlobalID(), level);
 			}
 
@@ -874,59 +850,32 @@ void Scriptable::CreateProjectile(const ieResRef SpellResRef, ieDword tgt, int l
 		// caster - Casts spellname : target OR
 		// caster - spellname : target (repeating spells)
 		Scriptable *target = NULL;
-		char tmp[100];
-		const char* msg = core->GetString(displaymsg->GetStringReference(STR_ACTION_CAST), 0);
-		const char* spell = core->GetString(spl->SpellName);
 		if (tgt) {
 			target = area->GetActorByGlobalID(tgt);
 			if (!target) {
 				target=core->GetGame()->GetActorByGlobalID(tgt);
 			}
 		}
+		char* spell = core->GetString(spl->SpellName);
 		if (stricmp(spell, "")) {
+			char* msg = core->GetString(displaymsg->GetStringReference(STR_ACTION_CAST), 0);
+			char *tmp;
 			if (target) {
-				snprintf(tmp, sizeof(tmp), "%s %s : %s", msg, spell, target->GetName(-1));
+				tmp = (char *) malloc(strlen(msg)+strlen(spell)+strlen(target->GetName(-1))+5);
+				sprintf(tmp, "%s %s : %s", msg, spell, target->GetName(-1));
 			} else {
-				snprintf(tmp, sizeof(tmp), "%s : %s", spell, GetName(-1));
+				tmp = (char *) malloc(strlen(msg)+strlen(spell)+4);
+				sprintf(tmp, "%s : %s", spell, GetName(-1));
 			}
-			displaymsg->DisplayStringName(tmp, 0xffffff, this);
+			displaymsg->DisplayStringName(tmp, DMC_WHITE, this);
+			core->FreeString(msg);
+			free(tmp);
 		}
-
-		if (tgt) {
-			if (target && (Type==ST_ACTOR) ) {
-				target->AddTrigger(TriggerEntry(trigger_spellcastonme, caster->GetGlobalID(), spellnum));
-				target->LastSpellOnMe = spellnum;
-				// don't cure invisibility if this is a self targetting invisibility spell
-				// like shadow door
-				//can't check GetEffectBlock, since it doesn't construct the queue for selftargetting spells
-				bool invis = false;
-				unsigned int opcode = EffectQueue::ResolveEffect(fx_set_invisible_state_ref);
-				SPLExtHeader *seh = spl->GetExtHeader(SpellHeader);
-				if (seh) {
-					for (unsigned int i=0; i < seh->FeatureCount; i++) {
-						if (seh->features[i].Opcode == opcode) {
-							invis = true;
-							break;
-						}
-					}
-				}
-				if (invis && seh && seh->Target == TARGET_SELF) {
-					//pass
-				} else {
-					caster->CureInvisibility();
-				}
-				// sanctuary ends with all hostile actions or when the caster targets someone else
-				if (target != this || spl->Flags & SF_HOSTILE) {
-					caster->CureSanctuary();
-				}
-			}
-		}
+		core->FreeString(spell);
 	}
-
 	core->Autopause(AP_SPELLCAST);
 
 	gamedata->FreeSpell(spl, SpellResRef, false);
-
 }
 
 void Scriptable::CastSpellPointEnd(int level)
@@ -1024,7 +973,12 @@ int Scriptable::CanCast(const ieResRef SpellResRef) {
 	// tob AR3004 is a dead magic area, but using a script with personal dead magic
 	if (area->GetInternalFlag()&AF_DEADMAGIC) {
 		// TODO: display fizzling animation
-		displaymsg->DisplayConstantStringName(STR_DEADMAGIC_FAIL, 0xffffff, this);
+		displaymsg->DisplayConstantStringName(STR_DEADMAGIC_FAIL, DMC_WHITE, this);
+		return 0;
+	}
+
+	if (spl->Flags&SF_NOT_INDOORS && !(area->AreaType&AT_OUTDOOR)) {
+		displaymsg->DisplayConstantStringName(STR_INDOOR_FAIL, DMC_WHITE, this);
 		return 0;
 	}
 
@@ -1046,7 +1000,7 @@ int Scriptable::CanCast(const ieResRef SpellResRef) {
 		// check for personal dead magic
 		if (actor->Modified[IE_DEADMAGIC]) {
 			// TODO: display fizzling animation
-			displaymsg->DisplayConstantStringName(STR_DEADMAGIC_FAIL, 0xffffff, this);
+			displaymsg->DisplayConstantStringName(STR_DEADMAGIC_FAIL, DMC_WHITE, this);
 			return 0;
 		}
 
@@ -1073,7 +1027,7 @@ int Scriptable::CanCast(const ieResRef SpellResRef) {
 		}
 		if (failed) {
 			// TODO: display fizzling animation
-			displaymsg->DisplayConstantStringName(STR_MISCASTMAGIC, 0xffffff, this);
+			displaymsg->DisplayConstantStringName(STR_MISCASTMAGIC, DMC_WHITE, this);
 			return 0;
 		}
 	}
@@ -1084,28 +1038,24 @@ int Scriptable::CanCast(const ieResRef SpellResRef) {
 //set target as point
 //if spell needs to be depleted, do it
 //if spell is illegal stop casting
-int Scriptable::CastSpellPoint( ieResRef &SpellRef, const Point &target, bool deplete, bool instant )
+int Scriptable::CastSpellPoint( const Point &target, bool deplete, bool instant, bool nointerrupt )
 {
 	LastTarget = 0;
 	LastTargetPos.empty();
+	Actor *actor = NULL;
 	if (Type == ST_ACTOR) {
-		Actor *actor = (Actor *) this;
-		if (actor->HandleCastingStance(SpellRef,deplete) ) {
+		actor = (Actor *) this;
+		if (actor->HandleCastingStance(SpellResRef, deplete) ) {
 			printMessage("Scriptable", "Spell not known or memorized, aborting cast!\n", LIGHT_RED);
 			return -1;
 		}
 	}
-	if(deplete && !CanCast(SpellRef)) {
+	if(!nointerrupt && !CanCast(SpellResRef)) {
 		SpellResRef[0] = 0;
-		if (Type == ST_ACTOR) {
-			Actor *actor = (Actor *) this;
+		if (actor) {
 			actor->SetStance(IE_ANI_READY);
 		}
 		return -1;
-	}
-
-	if (!SpellResRef[0]) {
-		SetSpellResRef(SpellRef);
 	}
 
 	LastTargetPos = target;
@@ -1119,13 +1069,14 @@ int Scriptable::CastSpellPoint( ieResRef &SpellRef, const Point &target, bool de
 //set target as actor (if target isn't actor, use its position)
 //if spell needs to be depleted, do it
 //if spell is illegal stop casting
-int Scriptable::CastSpell( ieResRef &SpellRef, Scriptable* target, bool deplete, bool instant )
+int Scriptable::CastSpell( Scriptable* target, bool deplete, bool instant, bool nointerrupt )
 {
 	LastTarget = 0;
 	LastTargetPos.empty();
+	Actor *actor = NULL;
 	if (Type == ST_ACTOR) {
-		Actor *actor = (Actor *) this;
-		if (actor->HandleCastingStance(SpellRef,deplete) ) {
+		actor = (Actor *) this;
+		if (actor->HandleCastingStance(SpellResRef, deplete) ) {
 			printMessage("Scriptable", "Spell not known or memorized, aborting cast!\n", LIGHT_RED);
 			return -1;
 		}
@@ -1134,17 +1085,12 @@ int Scriptable::CastSpell( ieResRef &SpellRef, Scriptable* target, bool deplete,
 	// FIXME: fishy
 	if (!target) target = this;
 
-	if(deplete && !CanCast(SpellRef)) {
+	if(!nointerrupt && !CanCast(SpellResRef)) {
 		SpellResRef[0] = 0;
-		if (Type == ST_ACTOR) {
-			Actor *actor = (Actor *) this;
+		if (actor) {
 			actor->SetStance(IE_ANI_READY);
 		}
 		return -1;
-	}
-
-	if (!SpellResRef[0]) {
-		SetSpellResRef(SpellRef);
 	}
 
 	LastTargetPos = target->Pos;
@@ -1183,9 +1129,14 @@ int Scriptable::SpellCast(bool instant)
 	if (actor) {
 		// The mental speed effect can shorten or lengthen the casting time.
 		casting_time -= (int)actor->Modified[IE_MENTALSPEED];
-		if (casting_time < 0) casting_time = 0;
+		// maybe also add a random lucky roll as for weapon speed / initiative
+		if (casting_time < 0) {
+			casting_time = 0;
+		} else if (casting_time > 10) {
+			casting_time = 10;
+		}
 	}
-	// this is a guess which seems approximately right so far
+	// this is a guess which seems approximately right so far (same as in the bg2 manual, except that it may be a combat round instead)
 	int duration = (casting_time*core->Time.round_size) / 10;
 	if (instant) {
 		duration = 0;
@@ -1217,11 +1168,18 @@ int Scriptable::SpellCast(bool instant)
 // 1. the spell is cast normally (score of 100 or more)
 // 2. one or more wild surges happen and something else is cast
 // 2.1. this can loop, since some surges cause rerolls
+static EffectRef fx_chaosshield_ref = { "ChaosShieldModifier", -1 };
+
 int Scriptable::CheckWildSurge()
 {
-	if (Type != ST_ACTOR || core->HasFeature(GF_3ED_RULES)) {
+	//no need to check for 3rd ed rules, because surgemod or forcesurge need to be nonzero to get a surge
+	if (Type != ST_ACTOR) {
 		return 1;
 	}
+	if (core->InCutSceneMode()) {
+		return 1;
+	}
+
 	Actor *caster = (Actor *) this;
 
 	int roll = core->Roll(1, 100, 0);
@@ -1230,14 +1188,28 @@ int Scriptable::CheckWildSurge()
 		memcpy(OldSpellResRef, SpellResRef, sizeof(OldSpellResRef));
 		Spell *spl = gamedata->GetSpell( OldSpellResRef ); // this was checked before we got here
 		// ignore non-magic "spells"
-		if (!(spl->Flags&SF_HLA)) {
+		if (!(spl->Flags&(SF_HLA|SF_TRIGGER) )) {
 			int check = roll + caster->GetCasterLevel(spl->SpellType) + caster->Modified[IE_SURGEMOD];
+			if (caster->Modified[IE_CHAOSSHIELD]) {
+				//avert the surge and decrease the chaos shield counter
+				//FIXME: if 0 is also good, use that
+				check = 100;
+				caster->fxqueue.DecreaseParam1OfEffect(fx_chaosshield_ref,1);
+				displaymsg->DisplayConstantStringName(STR_CHAOSSHIELD,DMC_LIGHTGREY,caster);
+			}
+
 			// hundred or more means a normal cast
-			if (check < 100) {
+			//FIXME: what happens if check is 0
+			if (check && (check < 100) ) {
 				// display feedback: Wild Surge: bla bla
-				char text[200];
-				snprintf(text, 200, "%s %s", core->GetString(displaymsg->GetStringReference(STR_WILDSURGE), 0), core->GetString(core->SurgeSpells[check-1].message, 0));
-				displaymsg->DisplayStringName(text, 0xffffff, this);
+				char *s1 = core->GetString(displaymsg->GetStringReference(STR_WILDSURGE), 0);
+				char *s2 = core->GetString(core->SurgeSpells[check-1].message, 0);
+				char *s3 = (char *) malloc(strlen(s1)+strlen(s2)+2);
+				sprintf(s3, "%s %s", s1, s2);
+				core->FreeString(s1);
+				core->FreeString(s2);
+				displaymsg->DisplayStringName(s3, DMC_WHITE, this);
+				free(s3);
 
 				// lookup the spell in the "check" row of wildmag.2da
 				ieResRef surgeSpellRef;
@@ -1318,14 +1290,16 @@ bool Scriptable::HandleHardcodedSurge(ieResRef surgeSpellRef, Spell *spl, Actor 
 			} else if (target) {
 				targetpos = target->Pos;
 			}
+			// SpellResRef still contains the original spell and we need to keep it that way
+			// as any of the rerolls could result in a "spell cast normally" (non-surge)
 			for (i=0; i<count; i++) {
 				if (target) {
-					caster->CastSpell(SpellResRef, target, false, true);
+					caster->CastSpell(target, false, true);
 					strncpy(newspl, SpellResRef, 8);
 					caster->WMLevelMod = tmp3;
 					caster->CastSpellEnd(level);
 				} else {
-					caster->CastSpellPoint(SpellResRef, targetpos, false, true);
+					caster->CastSpellPoint(targetpos, false, true);
 					strncpy(newspl, SpellResRef, 8);
 					caster->WMLevelMod = tmp3;
 					caster->CastSpellPointEnd(level);
@@ -1376,6 +1350,33 @@ bool Scriptable::HandleHardcodedSurge(ieResRef surgeSpellRef, Spell *spl, Actor 
 			return false;
 	}
 	return true;
+}
+
+bool Scriptable::AuraPolluted()
+{
+	if (Type != ST_ACTOR) {
+		return false;
+	}
+
+	// aura pollution happens automatically
+	// aura cleansing the usual and magical way
+	if (AuraTicks >= core->Time.attack_round_size) {
+		AuraTicks = -1;
+		return false;
+	} else if (CurrentActionTicks == 0 && AuraTicks != 1 && Type == ST_ACTOR) {
+		Actor *act = (Actor *) this;
+		if (act->GetStat(IE_AURACLEANSING)) {
+			AuraTicks = -1;
+			displaymsg->DisplayConstantStringName(STR_AURACLEANSED, DMC_WHITE, this);
+			return false;
+		}
+	}
+
+	if (AuraTicks > 0) {
+		// sorry, you'll have to recover first
+		return true;
+	}
+	return false;
 }
 
 bool Scriptable::TimerActive(ieDword ID)
@@ -1442,8 +1443,6 @@ void Selectable::SetBBox(const Region &newBBox)
 {
 	BBox = newBBox;
 }
-
-static const unsigned long tp_steps[8]={3,2,1,0,1,2,3,4};
 
 void Selectable::DrawCircle(const Region &vp)
 {
@@ -1710,6 +1709,8 @@ Movable::~Movable(void)
 int Movable::GetPathLength()
 {
 	PathNode *node = GetNextStep(0);
+	if (!node) return 0;
+
 	int i = 0;
 	while (node->Next) {
 		i++;
@@ -2035,7 +2036,7 @@ void Movable::ClearPath()
 	if (StanceID==IE_ANI_WALK || StanceID==IE_ANI_RUN) {
 		StanceID = IE_ANI_AWAKE;
 	}
-	InternalFlags&=~IF_NORECTICLE;
+	InternalFlags&=~IF_NORETICLE;
 	PathNode* thisNode = path;
 	while (thisNode) {
 		PathNode* nextNode = thisNode->Next;
@@ -2045,46 +2046,6 @@ void Movable::ClearPath()
 	path = NULL;
 	step = NULL;
 	//don't call ReleaseCurrentAction
-}
-
-void Movable::DrawTargetPoint(const Region &vp)
-{
-	if (!path || !Selected || (InternalFlags&IF_NORECTICLE) )
-		return;
-
-	// recticles are never drawn in cutscenes
-	if ((core->GetGameControl()->GetScreenFlags()&SF_CUTSCENE))
-		return;
-
-	// generates "step" from sequence 3 2 1 0 1 2 3 4
-	// updated each 1/15 sec
-	unsigned long step;
-	step = GetTickCount();
-	step = tp_steps [(step >> 6) & 7];
-
-	step = step + 1;
-	int csize = (size - 1) * 4;
-	if (csize < 4) csize = 3;
-
-	/* segments should not go outside selection radius */
-	unsigned short xradius = (csize * 4) - 5;
-	unsigned short yradius = (csize * 3) - 5;
-	ieWord xcentre = (ieWord) (Destination.x - vp.x);
-	ieWord ycentre = (ieWord) (Destination.y - vp.y);
-
-	// TODO: 0.5 and 0.7 are pretty much random values
-	// right segment
-	core->GetVideoDriver()->DrawEllipseSegment( xcentre + step, ycentre, xradius,
-		yradius, selectedColor, -0.5, 0.5 );
-	// top segment
-	core->GetVideoDriver()->DrawEllipseSegment( xcentre, ycentre - step, xradius,
-		yradius, selectedColor, -0.7 - M_PI_2, 0.7 - M_PI_2 );
-	// left segment
-	core->GetVideoDriver()->DrawEllipseSegment( xcentre - step, ycentre, xradius,
-		yradius, selectedColor, -0.5 - M_PI, 0.5 - M_PI );
-	// bottom segment
-	core->GetVideoDriver()->DrawEllipseSegment( xcentre, ycentre + step, xradius,
-		yradius, selectedColor, -0.7 - M_PI - M_PI_2, 0.7 - M_PI - M_PI_2 );
 }
 
 /**********************

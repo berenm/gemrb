@@ -23,6 +23,7 @@
 
 #include "strrefs.h"
 #include "defsounds.h"
+#include "ie_feats.h"
 
 #include "Audio.h"
 #include "CharAnimations.h"
@@ -394,7 +395,7 @@ void DisplayStringCore(Scriptable* const Sender, int Strref, int flags)
 			if(flags&DS_NONAME) {
 				displaymsg->DisplayString( sb.text );
 			} else {
-				displaymsg->DisplayStringName( Strref, 0xf0f0f0, Sender, 0);
+				displaymsg->DisplayStringName( Strref, DMC_WHITE, Sender, 0);
 			}
 		}
 		if (sb.text[0] && strcmp(sb.text," ") && (flags & (DS_HEAD | DS_AREA))) {
@@ -536,16 +537,16 @@ int MoveItemCore(Scriptable *Sender, Scriptable *target, const char *resref, int
 	}
 	if (!myinv) {
 		delete item;
-		if (lostitem) displaymsg->DisplayConstantString(STR_LOSTITEM, 0xbcefbc);
+		if (lostitem) displaymsg->DisplayConstantString(STR_LOSTITEM, DMC_BG2XPGREEN);
 		return MIC_GOTITEM; // actually it was lost, not gained
 	}
 	if ( myinv->AddSlotItem(item, SLOT_ONLYINVENTORY) !=ASI_SUCCESS) {
 		// drop it at my feet
 		map->AddItemToLocation(target->Pos, item);
-		if (gotitem) displaymsg->DisplayConstantString(STR_INVFULL_ITEMDROP, 0xbcefbc);
+		if (gotitem) displaymsg->DisplayConstantString(STR_INVFULL_ITEMDROP, DMC_BG2XPGREEN);
 		return MIC_FULL;
 	}
-	if (gotitem) displaymsg->DisplayConstantString(STR_GOTITEM, 0xbcefbc);
+	if (gotitem) displaymsg->DisplayConstantString(STR_GOTITEM, DMC_BG2XPGREEN);
 	return MIC_GOTITEM;
 }
 
@@ -964,11 +965,9 @@ void BeginDialog(Scriptable* Sender, Action* parameters, int Flags)
 	// moved this here from InitDialog, because InitDialog doesn't know which side is which
 	// post-swap (and non-actors always have IF_NOINT set) .. also added a check that it's
 	// actually busy doing something, for the same reason
-	Action *curact = target->GetCurrentAction();
-	if (target->GetInternalFlag()&IF_NOINT && ((curact && curact->actionID != 137) || \
-(!curact && target->GetNextAction()))) {
+	if (target->GetInternalFlag()&IF_NOINT && (target->GetCurrentAction() || target->GetNextAction())) {
 		core->GetTokenDictionary()->SetAtCopy("TARGET", target->GetName(1));
-		displaymsg->DisplayConstantString(STR_TARGETBUSY,0xff0000);
+		displaymsg->DisplayConstantString(STR_TARGETBUSY, DMC_RED);
 		Sender->ReleaseCurrentAction();
 		return;
 	}
@@ -983,7 +982,7 @@ void BeginDialog(Scriptable* Sender, Action* parameters, int Flags)
 				// added CurrentAction as part of blocking action fixes
 				if (tar->GetCurrentAction() || tar->GetNextAction()) {
 					core->GetTokenDictionary()->SetAtCopy("TARGET", target->GetName(1));
-					displaymsg->DisplayConstantString(STR_TARGETBUSY,0xff0000);
+					displaymsg->DisplayConstantString(STR_TARGETBUSY, DMC_RED);
 					Sender->ReleaseCurrentAction();
 					return;
 				}
@@ -1025,7 +1024,7 @@ void BeginDialog(Scriptable* Sender, Action* parameters, int Flags)
 		if (Flags & BD_NOEMPTY) {
 			return;
 		}
-		displaymsg->DisplayConstantStringName(STR_NOTHINGTOSAY,0xff0000,tar);
+		displaymsg->DisplayConstantStringName(STR_NOTHINGTOSAY, DMC_RED, tar);
 		return;
 	}
 }
@@ -1157,17 +1156,13 @@ void AttackCore(Scriptable *Sender, Scriptable *target, int flags)
 	ITMExtHeader *header = NULL;
 	ITMExtHeader *hittingheader = NULL;
 	int tohit;
-	ieDword Flags;
 	int DamageBonus, CriticalBonus;
 	int speed, style;
 
-	//bool leftorright = (bool) ((attacksperround-attackcount)&1);
 	bool leftorright = false;
 	Actor *tar = NULL;
-	ieDword targetID = 0;
 	if (target->Type==ST_ACTOR) {
 		tar = (Actor *) target;
-		targetID = tar->GetGlobalID();
 	}
 	if (actor == tar) {
 		Sender->ReleaseCurrentAction();
@@ -1175,7 +1170,7 @@ void AttackCore(Scriptable *Sender, Scriptable *target, int flags)
 	}
 
 	//will return false on any errors (eg, unusable weapon)
-	if (!actor->GetCombatDetails(tohit, leftorright, wi, header, hittingheader, Flags, DamageBonus, speed, CriticalBonus, style, tar)) {
+	if (!actor->GetCombatDetails(tohit, leftorright, wi, header, hittingheader, DamageBonus, speed, CriticalBonus, style, tar)) {
 		actor->SetStance(IE_ANI_READY);
 		Sender->ReleaseCurrentAction();
 		return;
@@ -1188,21 +1183,19 @@ void AttackCore(Scriptable *Sender, Scriptable *target, int flags)
 		wi.range += 10;
 	}
 	if (!(flags&AC_NO_SOUND) ) {
-		if (actor->LastTarget != targetID) {
+		if (!Sender->CurrentActionTicks) {
 			//play attack sound for party members
 			if (actor->InParty) {
 				//pick from all 5 possible verbal constants
 				actor->VerbalConstant(VB_ATTACK, 5);
-				//DisplayStringCore(Sender, VB_ATTACK, DS_CONSOLE|DS_CONST );
 			}
 			//display attack message
-			displaymsg->DisplayConstantStringAction(STR_ACTION_ATTACK,0xf0f0f0, Sender, target);
+			displaymsg->DisplayConstantStringAction(STR_ACTION_ATTACK, DMC_WHITE, Sender, target);
 		}
 	}
 	//action performed
-	if(target->Type == ST_ACTOR) {
-		actor->SetTarget( target );
-	}
+	actor->SetTarget( target );
+
 	if ( Sender->GetCurrentArea()!=target->GetCurrentArea() ||
 		(PersonalDistance(Sender, target) > wi.range) ||
 		(!Sender->GetCurrentArea()->IsVisible(Sender->Pos, target->Pos))) {
@@ -1225,6 +1218,7 @@ void AttackCore(Scriptable *Sender, Scriptable *target, int flags)
 		return;
 	}
 
+	Sender->LastTarget = target->GetGlobalID();
 	actor->PerformAttack(core->GetGame()->GameTime);
 }
 
@@ -1342,7 +1336,6 @@ Action* GenerateActionCore(const char *src, const char *str, unsigned short acti
 	if (actionflags[newAction->actionID]&AF_DIRECT) {
 		Object *tmp = new Object();
 		tmp->objectFields[0] = -1;
-		//tmp->objectFields[1] = core->GetGameControl()->targetID;
 		newAction->objects[objectCount++] = tmp;
 	}
 	//Here is the Action; Now we need to evaluate the parameters, if any
@@ -2249,6 +2242,24 @@ retry:
 	free(selects);
 }
 
+void AmbientActivateCore(Scriptable *Sender, Action *parameters, int flag)
+{
+	AreaAnimation* anim = Sender->GetCurrentArea( )->GetAnimation( parameters->string0Parameter);
+	if (!anim) {
+		anim = Sender->GetCurrentArea( )->GetAnimation( parameters->objects[1]->objectName );
+	}
+	if (!anim) {
+		print( "Script error: No Animation Named \"%s\" or \"%s\"\n",
+			parameters->string0Parameter,parameters->objects[1]->objectName );
+		return;
+	}
+	if (flag) {
+		anim->Flags |= A_ANI_ACTIVE;
+	} else {
+		anim->Flags &= ~A_ANI_ACTIVE;
+	}
+}
+
 #define MAX_ISLAND_POLYGONS  10
 
 //read a polygon 2da
@@ -2288,3 +2299,259 @@ Gem_Polygon *GetPolygon2DA(ieDword index)
 	return polygons[index];
 }
 
+inline static bool InterruptSpellcasting(Scriptable* Sender) {
+	if (Sender->Type != ST_ACTOR) return false;
+	Actor *caster = (Actor *) Sender;
+
+	// ouch, we got hit
+	if (Sender->InterruptCasting) {
+		int roll = 0;
+
+		// iwd2 does an extra concentration check first:
+		// d20 + Concentration Skill Level + Constitution bonus (+4 Combat casting feat) >= 15 + spell level
+		if (core->HasFeature(GF_3ED_RULES)) {
+			roll = core->Roll(1, 20, 0); // TODO: check if the original does a lucky roll
+			roll += caster->GetStat(IE_CONCENTRATION);
+			roll += caster->GetAbilityBonus(IE_CON);
+			if (caster->HasFeat(FEAT_COMBAT_CASTING)) {
+				roll += 4;
+			}
+			Spell* spl = gamedata->GetSpell(Sender->SpellResRef, true);
+			if (!spl) return false;
+			roll -= spl->SpellLevel;
+			gamedata->FreeSpell(spl, Sender->SpellResRef, false);
+		}
+		if (roll < 15) {
+			if (caster->InParty) {
+				displaymsg->DisplayConstantString(STR_SPELLDISRUPT, DMC_WHITE, Sender);
+			} else {
+				displaymsg->DisplayConstantStringName(STR_SPELL_FAILED, DMC_WHITE, Sender);
+			}
+			DisplayStringCore(Sender, VB_SPELL_DISRUPTED, DS_CONSOLE|DS_CONST );
+			return true;
+		}
+	}
+
+	// abort casting on invisible or dead targets
+	// not all spells should be interrupted on death - some for chunking, some for raising the dead
+	if (Sender->LastTarget) {
+		Actor *target = core->GetGame()->GetActorByGlobalID(Sender->LastTarget);
+		if (target) {
+			ieDword state = target->GetStat(IE_STATE_ID);
+			if (state & STATE_DEAD) {
+				if (state & ~(STATE_PETRIFIED|STATE_FROZEN)) {
+					Spell* spl = gamedata->GetSpell(Sender->SpellResRef, true);
+					if (!spl) return false;
+					SPLExtHeader *seh = spl->GetExtHeader(0); // potentially wrong, but none of the existing spells is problematic
+					if (seh && seh->Target != TARGET_DEAD) {
+						gamedata->FreeSpell(spl, Sender->SpellResRef, false);
+						if (caster->InParty) {
+							core->Autopause(AP_NOTARGET);
+						}
+						caster->SetStance(IE_ANI_READY);
+						return true;
+					}
+					gamedata->FreeSpell(spl, Sender->SpellResRef, false);
+				}
+			}
+		}
+	}
+	return false;
+}
+
+// shared spellcasting action code for casting on scriptables
+void SpellCore(Scriptable *Sender, Action *parameters, int flags)
+{
+	ieResRef spellres;
+	int level = 0;
+
+	//resolve spellname
+	if (!ResolveSpellName( spellres, parameters) ) {
+		Sender->ReleaseCurrentAction();
+		return;
+	} else {
+		if (!Sender->SpellResRef[0] || stricmp(Sender->SpellResRef, spellres)) {
+			if (Sender->CurrentActionTicks) {
+				printMessage("GameScript", "SpellCore: Action (%d) lost spell somewhere!\n", YELLOW, parameters->actionID);
+			}
+			Sender->SetSpellResRef(spellres);
+		}
+	}
+	if (!Sender->CurrentActionTicks) {
+		parameters->int2Parameter = 1;
+	}
+
+	if ((flags&SC_AURA_CHECK) && parameters->int2Parameter && Sender->AuraPolluted()) {
+		return;
+	}
+
+	// use the passed level instead of the caster's casting level
+	if (flags&SC_SETLEVEL) {
+		if (parameters->string0Parameter[0]) {
+			level = parameters->int0Parameter;
+		} else {
+			level = parameters->int1Parameter;
+		}
+	}
+
+	Actor *act = NULL;
+	if (Sender->Type==ST_ACTOR) {
+		act = (Actor *) Sender;
+	}
+
+	//parse target
+	int seeflag = 0;
+	unsigned int dist = GetSpellDistance(spellres, Sender);
+	if ((flags&SC_NO_DEAD) && dist != 0xffffffff) {
+		seeflag = GA_NO_DEAD;
+	}
+
+	Scriptable* tar = GetStoredActorFromObject( Sender, parameters->objects[1], seeflag );
+	if (!tar) {
+		Sender->ReleaseCurrentAction();
+		if (act) {
+			act->SetStance(IE_ANI_READY);
+		}
+		return;
+	}
+
+	if (act) {
+		//move near to target
+		if ((flags&SC_RANGE_CHECK) && dist != 0xffffffff) {
+			if (PersonalDistance(tar, Sender) > dist || !Sender->GetCurrentArea()->IsVisible(Sender->Pos, tar->Pos)) {
+				MoveNearerTo(Sender, tar, dist);
+				return;
+			}
+		}
+
+		//face target
+		if (tar != Sender) {
+			act->SetOrientation( GetOrient( tar->Pos, act->Pos ), false );
+		}
+
+		//stop doing anything else
+		act->SetModal(MS_NONE);
+	}
+
+	int duration;
+	if (!parameters->int2Parameter) {
+		duration = Sender->CurrentActionState--;
+	} else {
+		duration = Sender->CastSpell( tar, flags&SC_DEPLETE, flags&SC_INSTANT, flags&SC_NOINTERRUPT );
+	}
+	if (duration == -1) {
+		// some kind of error
+		Sender->ReleaseCurrentAction();
+		return;
+	} else if (duration > 0) {
+		if (parameters->int2Parameter) {
+			Sender->CurrentActionState = duration;
+			parameters->int2Parameter = 0;
+		}
+		if (!(flags&SC_NOINTERRUPT) && InterruptSpellcasting(Sender)) {
+			Sender->ReleaseCurrentAction();
+		}
+		return;
+	}
+	if (!(flags&SC_NOINTERRUPT) && InterruptSpellcasting(Sender)) {
+		Sender->ReleaseCurrentAction();
+		return;
+	}
+
+	if (Sender->LastTarget) {
+		//if target was set, fire spell
+		Sender->CastSpellEnd(level);
+	} else if(!Sender->LastTargetPos.isempty()) {
+		//the target was converted to a point
+		Sender->CastSpellPointEnd(level);
+	} else {
+		printMessage("GameScript", "SpellCore: Action (%d) lost target somewhere!\n", LIGHT_RED, parameters->actionID);
+	}
+	Sender->ReleaseCurrentAction();
+}
+
+
+// shared spellcasting action code for casting on the ground
+void SpellPointCore(Scriptable *Sender, Action *parameters, int flags)
+{
+	ieResRef spellres;
+	int level = 0;
+
+	//resolve spellname
+	if (!ResolveSpellName( spellres, parameters) ) {
+		Sender->ReleaseCurrentAction();
+		return;
+	} else {
+		if (!Sender->SpellResRef[0] || stricmp(Sender->SpellResRef, spellres)) {
+			if (Sender->CurrentActionTicks) {
+				printMessage("GameScript", "SpellPointCore: Action (%d) lost spell somewhere!\n", YELLOW, parameters->actionID);
+			}
+			Sender->SetSpellResRef(spellres);
+		}
+	}
+	if (!Sender->CurrentActionTicks) {
+		parameters->int2Parameter = 1;
+	}
+
+	if ((flags&SC_AURA_CHECK) && parameters->int2Parameter && Sender->AuraPolluted()) {
+		return;
+	}
+
+	// use the passed level instead of the caster's casting level
+	if (flags&SC_SETLEVEL) {
+		if (parameters->string0Parameter[0]) {
+			level = parameters->int0Parameter;
+		} else {
+			level = parameters->int1Parameter;
+		}
+	}
+
+	if(Sender->Type==ST_ACTOR) {
+		unsigned int dist = GetSpellDistance(spellres, Sender);
+
+		Actor *act = (Actor *) Sender;
+		//move near to target
+		if ((flags&SC_RANGE_CHECK) && (PersonalDistance(parameters->pointParameter, Sender) > dist || !Sender->GetCurrentArea()->IsVisible(Sender->Pos, parameters->pointParameter))) {
+			MoveNearerTo(Sender,parameters->pointParameter, dist, 0);
+			return;
+		}
+
+		//face target
+		act->SetOrientation( GetOrient( parameters->pointParameter, act->Pos ), false );
+		//stop doing anything else
+		act->SetModal(MS_NONE);
+	}
+
+	int duration;
+	if (!parameters->int2Parameter) {
+		duration = Sender->CurrentActionState--;
+	} else {
+		duration = Sender->CastSpellPoint( parameters->pointParameter, flags&SC_DEPLETE, flags&SC_INSTANT, flags&SC_NOINTERRUPT );
+	}
+	if (duration == -1) {
+		// some kind of error
+		Sender->ReleaseCurrentAction();
+		return;
+	} else if (duration > 0) {
+		if (parameters->int2Parameter) {
+			Sender->CurrentActionState = duration;
+			parameters->int2Parameter = 0;
+		}
+		if (!(flags&SC_NOINTERRUPT) && InterruptSpellcasting(Sender)) {
+			Sender->ReleaseCurrentAction();
+		}
+		return;
+	}
+	if (!(flags&SC_NOINTERRUPT) && InterruptSpellcasting(Sender)) {
+		Sender->ReleaseCurrentAction();
+		return;
+	}
+
+	if(!Sender->LastTargetPos.isempty()) {
+		//if target was set, fire spell
+		Sender->CastSpellPointEnd(level);
+	} else {
+		printMessage("GameScript", "SpellPointCore: Action (%d) lost target somewhere!\n", LIGHT_RED, parameters->actionID);
+	}
+	Sender->ReleaseCurrentAction();
+}

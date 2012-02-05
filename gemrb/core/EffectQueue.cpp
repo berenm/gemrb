@@ -153,13 +153,6 @@ FX_DURATION_AFTER_EXPIRES,FX_DURATION_PERMANENT_UNSAVED, //4,5
 FX_DURATION_INSTANT_LIMITED,FX_DURATION_JUST_EXPIRED,FX_DURATION_PERMANENT_UNSAVED,//6,8
 FX_DURATION_INSTANT_PERMANENT_AFTER_BONUSES,FX_DURATION_JUST_EXPIRED};//9,10
 
-//change the timing method for effect that should trigger after this effect expired
-static const ieDword fx_to_delayed[]={FX_DURATION_JUST_EXPIRED,FX_DURATION_JUST_EXPIRED,
-FX_DURATION_PERMANENT_UNSAVED,FX_DURATION_DELAY_LIMITED_PENDING,
-FX_DURATION_AFTER_EXPIRES,FX_DURATION_PERMANENT_UNSAVED, //4,5
-FX_DURATION_JUST_EXPIRED,FX_DURATION_JUST_EXPIRED,FX_DURATION_JUST_EXPIRED,//6,8
-FX_DURATION_JUST_EXPIRED,FX_DURATION_JUST_EXPIRED};//9,10
-
 static inline ieByte TriggeredEffect(ieByte timingmode)
 {
 	if( timingmode>=MAX_TIMING_MODE) return false;
@@ -992,7 +985,7 @@ static bool check_resistance(Actor* actor, Effect* fx)
 */
 
 	//not resistable (no saves either?)
-	if(!fx->Resistance || fx->Resistance == FX_NO_RESIST_CAN_DISPEL) {
+	if(fx->Resistance != FX_CAN_RESIST_CAN_DISPEL) {
 		return false;
 	}
 
@@ -1011,11 +1004,10 @@ static bool check_resistance(Actor* actor, Effect* fx)
 	//magic immunity
 	ieDword val = actor->GetStat(IE_RESISTMAGIC);
 	if( (signed) fx->random_value < (signed) val) {
-		if ((selective_mr && (fx->Resistance&FX_CAN_RESIST)) || !selective_mr) {
-			displaymsg->DisplayConstantStringName(STR_MAGIC_RESISTED, 0xffffff, actor);
-			print ("effect resisted: %s\n", (char*) Opcodes[fx->Opcode].Name);
-			return true;
-		}
+		// we take care of irresistible spells a few checks above, so selective mr has no impact here anymore
+		displaymsg->DisplayConstantStringName(STR_MAGIC_RESISTED, DMC_WHITE, actor);
+		print ("effect resisted: %s\n", (char*) Opcodes[fx->Opcode].Name);
+		return true;
 	}
 
 	//saving throws
@@ -1059,8 +1051,8 @@ int EffectQueue::ApplyEffect(Actor* target, Effect* fx, ieDword first_apply, ieD
 
 	ieDword GameTime = core->GetGame()->GameTime;
 
-	fx->FirstApply=first_apply;
-	if( first_apply) {
+	if (first_apply) {
+		fx->FirstApply = 1;
 		if( (fx->PosX==0xffffffff) && (fx->PosY==0xffffffff)) {
 			fx->PosX = target->Pos.x;
 			fx->PosY = target->Pos.y;
@@ -1147,14 +1139,15 @@ int EffectQueue::ApplyEffect(Actor* target, Effect* fx, ieDword first_apply, ieD
 	}
 	int res = FX_ABORT;
 	if( fn) {
-		if( target && first_apply ) {
+		if( target && fx->FirstApply ) {
 			if( !target->fxqueue.HasEffectWithParamPair(fx_protection_from_display_string_ref, fx->Parameter1, 0) ) {
-				displaymsg->DisplayStringName( Opcodes[fx->Opcode].Strref, 0xf0f0f0,
+				displaymsg->DisplayStringName( Opcodes[fx->Opcode].Strref, DMC_WHITE,
 					target, IE_STR_SOUND);
 			}
 		}
 
 		res=fn( Owner, target, fx );
+		fx->FirstApply = 0;
 
 		//if there is no owner, we assume it is the target
 		switch( res ) {
@@ -1537,9 +1530,17 @@ void EffectQueue::DecreaseParam1OfEffect(ieDword opcode, ieDword amount) const
 		MATCH_OPCODE();
 		MATCH_LIVE_FX();
 		ieDword value = (*f)->Parameter1;
-		if( value>amount) value-=amount;
-		else value = 0;
+		if( value>amount) {
+			value -= amount;
+			amount = 0;
+		} else {
+			amount -= value;
+			value = 0;
+		}
 		(*f)->Parameter1=value;
+		if (value) {
+			return;
+		}
 	}
 }
 
@@ -1552,6 +1553,41 @@ void EffectQueue::DecreaseParam1OfEffect(EffectRef &effect_reference, ieDword am
 	DecreaseParam1OfEffect(effect_reference.opcode, amount);
 }
 
+//this is only used for Cloak of Warding Overlay in PST
+//returns the damage amount NOT soaked
+int EffectQueue::DecreaseParam3OfEffect(ieDword opcode, ieDword amount, ieDword param2) const
+{
+	std::list< Effect* >::const_iterator f;
+	for ( f = effects.begin(); f != effects.end(); f++ ) {
+		MATCH_OPCODE();
+		MATCH_LIVE_FX();
+		MATCH_PARAM2();
+		ieDword value = (*f)->Parameter3;
+		if( value>amount) {
+			value -= amount;
+			amount = 0;
+		} else {
+			amount -= value;
+			value = 0;
+		}
+		(*f)->Parameter3=value;
+		if (value) {
+			return 0;
+		}
+	}
+	return amount;
+}
+
+//this is only used for Cloak of Warding Overlay in PST
+//returns the damage amount NOT soaked
+int EffectQueue::DecreaseParam3OfEffect(EffectRef &effect_reference, ieDword amount, ieDword param2) const
+{
+	ResolveEffectRef(effect_reference);
+	if( effect_reference.opcode<0) {
+		return amount;
+	}
+	return DecreaseParam3OfEffect(effect_reference.opcode, amount, param2);
+}
 
 //this function does IDS targeting for effects (extra damage/thac0 against creature)
 static const int ids_stats[7]={IE_EA, IE_GENERAL, IE_RACE, IE_CLASS, IE_SPECIFIC, IE_SEX, IE_ALIGNMENT};
@@ -1890,15 +1926,6 @@ ieDword EffectQueue::GetSavedEffectsCount() const
 			cnt++;
 	}
 	return cnt;
-}
-
-void EffectQueue::TransformToDelay(ieByte &TimingMode)
-{
-	if( TimingMode<MAX_TIMING_MODE) {;
-		TimingMode = fx_to_delayed[TimingMode];
-	} else {
-		TimingMode = FX_DURATION_JUST_EXPIRED;
-	}
 }
 
 int EffectQueue::ResolveEffect(EffectRef &effect_reference)

@@ -696,7 +696,10 @@ def ReadItemWindow ():
 			OpenErrorWindow (strref)
 		return
 
-	slot_item = GemRB.GetSlotItem (pc, slot)
+	if GUICommon.GameIsPST():
+		slot, slot_item = GUIINV.ItemHash[GemRB.GetVar ('ItemButton')]
+	else:
+		slot_item = GemRB.GetSlotItem (pc, slot)
 	spell_ref = GemRB.GetItem (slot_item['ItemResRef'], pc)['Spell']
 	spell = GemRB.GetSpell (spell_ref)
 	if spell:
@@ -784,6 +787,7 @@ def IdentifyUseSpell ():
 	if ItemInfoWindow:
 		ItemInfoWindow.Unload ()
 	GemRB.ChangeItemFlag (pc, slot, IE_INV_ITEM_IDENTIFIED, OP_OR)
+	GemRB.PlaySound(DEF_IDENTIFY)
 	OpenItemInfoWindow()
 	return
 
@@ -800,6 +804,7 @@ def IdentifyUseScroll ():
 		ItemInfoWindow.Unload ()
 	if GemRB.HasSpecialItem (pc, 1, 1):
 		GemRB.ChangeItemFlag (pc, slot, IE_INV_ITEM_IDENTIFIED, OP_OR)
+	GemRB.PlaySound(DEF_IDENTIFY)
 	OpenItemInfoWindow()
 	return
 

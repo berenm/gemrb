@@ -46,6 +46,7 @@
 #include "Video.h"
 #include "WorldMap.h"
 #include "strrefs.h"
+#include "ie_cursors.h"
 #include "GameScript/GSUtils.h"
 #include "GUI/GameControl.h"
 #include "GUI/Window.h"
@@ -338,6 +339,7 @@ Map::Map(void)
 	MasterArea = core->GetGame()->MasterArea(scriptName);
 	Background = NULL;
 	BgDuration = 0;
+	LastGoCloser = 0;
 }
 
 Map::~Map(void)
@@ -346,6 +348,13 @@ Map::~Map(void)
 
 	free( MapSet );
 	free( SrchMap );
+
+	//close the current container if it was owned by this map, this avoids a crash
+	Container *c = core->GetCurrentContainer();
+	if (c && c->GetCurrentArea()==this) {
+		core->CloseCurrentContainer();
+	}
+
 	delete TMap;
 	delete INISpawn;
 	aniIterator aniidx;
@@ -468,9 +477,6 @@ void Map::MoveToNewArea(const char *area, const char *entrance, unsigned int dir
 
 		//perform autosave
 		core->GetSaveGameIterator()->CreateSaveGame(0, false);
-/*
-		core->GetGameControl()->AutoSave();
-*/
 	}
 	Map* map = game->GetMap(area, false);
 	if (!map) {
@@ -560,7 +566,10 @@ void Map::UseExit(Actor *actor, InfoPoint *ip)
 	int EveryOne = ip->CheckTravel(actor);
 	switch(EveryOne) {
 	case CT_GO_CLOSER:
-		displaymsg->DisplayConstantString(STR_WHOLEPARTY,0xffffff); //white
+		if (LastGoCloser<game->Ticks) {
+			displaymsg->DisplayConstantString(STR_WHOLEPARTY, DMC_WHITE); //white
+			LastGoCloser = game->Ticks+6000;
+		}
 		if (game->EveryoneStopped()) {
 			ip->Flags&=~TRAP_RESET; //exit triggered
 		}
@@ -887,7 +896,7 @@ bool Map::DoStepForActor(Actor *actor, int speed, ieDword time) {
 		if (!actor->Immobile()) {
 			no_more_steps = actor->DoStep( speed, time );
 			if (actor->BlocksSearchMap()) {
-				BlockSearchMap( actor->Pos, actor->size, actor->InParty?PATH_MAP_PC:PATH_MAP_NPC);
+				BlockSearchMap( actor->Pos, actor->size, actor->IsPartyMember()?PATH_MAP_PC:PATH_MAP_NPC);
 			}
 		}
 	}
@@ -905,7 +914,7 @@ void Map::ClearSearchMapFor( Movable *actor ) {
 	int i=0;
 	while(nearActors[i]!=NULL) {
 		if(nearActors[i]!=actor && nearActors[i]->BlocksSearchMap())
-			BlockSearchMap( nearActors[i]->Pos, nearActors[i]->size, nearActors[i]->InParty?PATH_MAP_PC:PATH_MAP_NPC);
+			BlockSearchMap( nearActors[i]->Pos, nearActors[i]->size, nearActors[i]->IsPartyMember()?PATH_MAP_PC:PATH_MAP_NPC);
 		++i;
 	}
 	free(nearActors);
@@ -1076,8 +1085,8 @@ void Map::DrawMap(Region screen)
 		int rain, flags;
 
 		if (game->IsTimestopActive()) {
-                	flags = TILE_GREY;
-	        }
+			flags = TILE_GREY;
+		}
 		else if (AreaFlags&AF_DREAM) {
 			flags = TILE_SEPIA;
 		} else flags = 0;
@@ -2113,7 +2122,7 @@ bool Map::CanFree()
 {
 	size_t i=actors.size();
 	while (i--) {
-		if (actors[i]->InParty) {
+		if (actors[i]->IsPartyMember()) {
 			return false;
 		}
 
@@ -3003,7 +3012,7 @@ bool Map::Rest(const Point &pos, int hours, int day)
 			// ensure a minimum power level, since many creatures have this as 0
 			int cpl = creature->Modified[IE_XP] ? creature->Modified[IE_XP] : 1;
 
-			displaymsg->DisplayString( RestHeader.Strref[idx], 0x00404000, IE_STR_SOUND );
+			displaymsg->DisplayString( RestHeader.Strref[idx], DMC_GOLD, IE_STR_SOUND );
 			while (spawnamount > 0 && spawncount <= RestHeader.Maximum) {
 				SpawnCreature(pos, RestHeader.CreResRef[idx], 20);
 				spawnamount -= cpl;
@@ -3247,7 +3256,15 @@ void Map::MoveVisibleGroundPiles(const Point &Pos)
 			unsigned int i=c->inventory.GetSlotCount();
 			while (i--) {
 				CREItem *item = c->RemoveItem(i, 0);
-				othercontainer->AddItem(item);
+				int slot = othercontainer->inventory.FindItem(item->ItemResRef, 0);
+				if (slot != -1) {
+					if (othercontainer->inventory.MergeItems(slot, item) != ASI_SUCCESS) {
+						// the merge either failed (add whole) or went over the limit (add remainder)
+						othercontainer->AddItem(item);
+					}
+				} else {
+					othercontainer->AddItem(item);
+				}
 			}
 		}
 	}
@@ -3446,22 +3463,22 @@ bool Map::DisplayTrackString(Actor *target)
 	int skill = target->GetStat(IE_TRACKING);
 	skill += (target->GetStat(IE_LEVEL)/3)*5 + target->GetStat(IE_WIS)*5;
 	if (core->Roll(1, 100, trackDiff) > skill) {
-		displaymsg->DisplayConstantStringName(STR_TRACKINGFAILED, 0xd7d7be, target);
+		displaymsg->DisplayConstantStringName(STR_TRACKINGFAILED, DMC_LIGHTGREY, target);
 		return true;
 	}
 	if (trackFlag) {
 			char * str = core->GetString( trackString);
 			core->GetTokenDictionary()->SetAt( "CREATURE", str);
-			displaymsg->DisplayConstantStringName(STR_TRACKING, 0xd7d7be, target);
+			displaymsg->DisplayConstantStringName(STR_TRACKING, DMC_LIGHTGREY, target);
 			return false;
 	}
-	displaymsg->DisplayStringName(trackString, 0xd7d7be, target, 0);
+	displaymsg->DisplayStringName(trackString, DMC_LIGHTGREY, target, 0);
 	return false;
 }
 
 // returns a lightness level in the range of [0-100]
 // since the lightmap is much smaller than the area, we need to interpolate
-unsigned int Map::GetLightLevel(const Point &Pos)
+unsigned int Map::GetLightLevel(const Point &Pos) const
 {
 	Color c = LightMap->GetPixel(Pos.x/16, Pos.y/12);
 	// at night/dusk/dawn the lightmap color is adjusted by the color overlay. (Only get's darker.)
@@ -3690,21 +3707,24 @@ void Map::SeeSpellCast(Scriptable *caster, ieDword spell)
 	}
 }
 
-short unsigned int Map::GetInternalSearchMap(int x, int y) {
+short unsigned int Map::GetInternalSearchMap(int x, int y) const
+{
 	if ((unsigned)x >= Width || (unsigned)y >= Height) {
 		return 0;
 	}
 	return SrchMap[x+y*Width];
 }
 
-void Map::SetInternalSearchMap(int x, int y, int value) {
+void Map::SetInternalSearchMap(int x, int y, int value)
+{
 	if ((unsigned)x >= Width || (unsigned)y >= Height) {
 		return;
 	}
 	SrchMap[x+y*Width] = value;
 }
 
-void Map::SetBackground(const ieResRef &bgResRef, ieDword duration) {
+void Map::SetBackground(const ieResRef &bgResRef, ieDword duration)
+{
 	Video* video = core->GetVideoDriver();
 
 	ResourceHolder<ImageMgr> bmp(bgResRef);

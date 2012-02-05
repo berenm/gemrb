@@ -1,3 +1,26 @@
+GemRB V0.6.6 (2011-10-03):
+  New features:
+    - aura pollution and cleansing, casting interruption
+    - formation rotation
+    - bounty encounters
+    - npclevel.2da support
+    - initial mac bundle support
+    - fatigue
+    - backstab on condition (like in ToBEx)
+
+  Improved features:
+    - effects, triggers, actions
+    - keyboard shortcuts (F1-F12), touchscreen ui, scrolling
+    - hitpoint gain, thieving skill boni
+    - combat, spellcasting, iwd sounds
+    - PST inventory, PST spells
+    - bugfixes
+
+  Applied patches:
+    manpage typo fixes from c-korn #3377098
+    pst spell learning fix from Viktor Novotný
+    touchscreen fix from Beholder
+
 GemRB V0.6.5 (2011-07-24):
   New features:
     - quickspell support

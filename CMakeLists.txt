@@ -49,7 +49,9 @@ ENDIF(PREFIX)
 if (NOT LAYOUT)
 	if (WIN32)
 		set(LAYOUT "home")
-	else (WIN32)
+	elseif (APPLE)
+		set(LAYOUT "library")
+	else (APPLE)
 		set(LAYOUT "fhs")
 	endif (WIN32)
 endif (NOT LAYOUT)
@@ -91,7 +93,7 @@ elseif (${LAYOUT} MATCHES "fhs")
 	SET_PATH( ICON_DIR ${CMAKE_INSTALL_PREFIX}/share/pixmaps )
 	SET_PATH( SVG_DIR ${CMAKE_INSTALL_PREFIX}/share/icons/hicolor/scalable/apps )
 	SET_PATH( MENU_DIR ${CMAKE_INSTALL_PREFIX}/share/applications )
-else (${LAYOUT} MATCHES "opt")
+elseif (${LAYOUT} MATCHES "opt")
 	SET_PATH( LIB_DIR ${CMAKE_INSTALL_PREFIX}/lib )
 	SET_PATH( PLUGIN_DIR ${LIB_DIR}/plugins )
 	SET_PATH( DATA_DIR ${CMAKE_INSTALL_PREFIX}/share/ )
@@ -102,6 +104,18 @@ else (${LAYOUT} MATCHES "opt")
 	SET_PATH( ICON_DIR ${CMAKE_INSTALL_PREFIX}/share/pixmaps )
 	SET_PATH( SVG_DIR ${CMAKE_INSTALL_PREFIX}/share/icons/hicolor/scalable/apps )
 	SET_PATH( MENU_DIR ${CMAKE_INSTALL_PREFIX}/share/applications )
+else (${LAYOUT} MATCHES "library") # mac
+	SET_PATH( APPLICATION_SUPPORT $ENV{HOME}/Library/Application\ Support/GemRB)
+	SET_PATH( LIB_DIR ${APPLICATION_SUPPORT}) #should go in app bundle!
+	SET_PATH( PLUGIN_DIR ${APPLICATION_SUPPORT}/plugins )
+	SET_PATH( DATA_DIR ${APPLICATION_SUPPORT} )
+	SET_PATH( MAN_DIR /usr/share/man/man6 )
+	SET_PATH( BIN_DIR /Applications )
+	SET_PATH( SYSCONF_DIR ${APPLICATION_SUPPORT})
+	SET_PATH( DOC_DIR ${APPLICATION_SUPPORT} )
+	SET_PATH( ICON_DIR ${APPLICATION_SUPPORT}/share/pixmaps )
+	SET_PATH( SVG_DIR ${APPLICATION_SUPPORT}/share/icons/hicolor/scalable/apps )
+	SET_PATH( MENU_DIR ${APPLICATION_SUPPORT}/share/applications )
 endif (${LAYOUT} MATCHES "home")
 
 # check if this is a release version
@@ -256,8 +270,9 @@ IF(NOT WIN32)
 ENDIF(NOT WIN32)
 
 IF(APPLE)
-	FIND_LIBRARY(SDL_MAIN_LIBRARY_PATH SDLmain)
 	FIND_LIBRARY(COCOA_LIBRARY_PATH Cocoa)
+	SET (MAC_C_FLAGS "${CMAKE_C_FLAGS} -x objective-c -DTARGET_OS_MAC")
+	SET (CMAKE_C_FLAGS ${MAC_C_FLAGS})
 ENDIF(APPLE)
 
 CONFIGURE_FILE(${CMAKE_CURRENT_SOURCE_DIR}/cmake_config.h.in
@@ -265,19 +280,33 @@ CONFIGURE_FILE(${CMAKE_CURRENT_SOURCE_DIR}/cmake_config.h.in
 
 #Plugin addition macro
 MACRO(ADD_GEMRB_PLUGIN plugin_name)
-	if (STATIC_LINK)
-		ADD_LIBRARY(${plugin_name} STATIC ${ARGN})
-		set(plugins "${plugins};${plugin_name}" PARENT_SCOPE)
-	else (STATIC_LINK)
-		ADD_LIBRARY(${plugin_name} MODULE ${ARGN})
-		if (NOT UNSAFE_PLUGIN)
-			TARGET_LINK_LIBRARIES(${plugin_name} gemrb_core ${CMAKE_THREAD_LIBS_INIT})
-		endif (NOT UNSAFE_PLUGIN)
-		INSTALL(TARGETS ${plugin_name} DESTINATION ${PLUGIN_DIR})
-	endif (STATIC_LINK)
-	SET_TARGET_PROPERTIES(${plugin_name} PROPERTIES PREFIX ""
-		INSTALL_RPATH ${LIB_DIR}
-		LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/gemrb/plugins)
+	SET (PLUGIN_BUILD_FILES ${ARGN})
+	if (${ARGV1} STREQUAL "COCOA")
+		LIST(REMOVE_ITEM PLUGIN_BUILD_FILES "COCOA")
+		#this is an Apple thing
+		if (APPLE)
+			SET_SOURCE_FILES_PROPERTIES(
+				CocoaWrapper.m
+				PROPERTIES LANGUAGE C
+			)
+			message(STATUS "Will link ${plugin_name} plugin to: ${BUNDLE_LOADER}")
+			SET (PLUGIN_BUILD_FILES ${PLUGIN_BUILD_FILES} CocoaWrapper.m)
+		endif (APPLE)
+	endif (${ARGV1} STREQUAL "COCOA")
+
+        if (STATIC_LINK)
+                ADD_LIBRARY(${plugin_name} STATIC ${PLUGIN_BUILD_FILES})
+                set(plugins "${plugins};${plugin_name}" PARENT_SCOPE)
+        else (STATIC_LINK)
+                ADD_LIBRARY(${plugin_name} MODULE ${PLUGIN_BUILD_FILES})
+                if (NOT UNSAFE_PLUGIN)
+                        TARGET_LINK_LIBRARIES(${plugin_name} gemrb_core ${CMAKE_THREAD_LIBS_INIT})
+                endif (NOT UNSAFE_PLUGIN)
+                INSTALL(TARGETS ${plugin_name} DESTINATION ${PLUGIN_DIR})
+        endif (STATIC_LINK)
+        SET_TARGET_PROPERTIES(${plugin_name} PROPERTIES PREFIX ""
+                INSTALL_RPATH ${LIB_DIR}
+                LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/gemrb/plugins)
 ENDMACRO(ADD_GEMRB_PLUGIN)
 
 #gemrb overrides macro
@@ -299,6 +328,8 @@ INSTALL( FILES artwork/gemrb-logo.png DESTINATION ${ICON_DIR} RENAME gemrb.png )
 INSTALL( FILES artwork/logo04-rb_only.svg DESTINATION ${SVG_DIR} RENAME gemrb.svg )
 INSTALL( FILES gemrb.desktop DESTINATION ${MENU_DIR} )
 INSTALL( FILES README INSTALL COPYING NEWS AUTHORS DESTINATION ${DOC_DIR} )
+INSTALL( FILES admin/extend2da.py DESTINATION ${BIN_DIR}
+	PERMISSIONS OWNER_WRITE OWNER_READ OWNER_EXECUTE GROUP_READ GROUP_EXECUTE WORLD_READ WORLD_EXECUTE)
 
 CONFIGURE_FILE(
 	"${CMAKE_CURRENT_SOURCE_DIR}/cmake_uninstall.cmake.in"
@@ -352,7 +383,6 @@ message(STATUS "")
 message(STATUS "Options:")
 message(STATUS "  LAYOUT: ${LAYOUT}")
 PRINT_OPTION("${NOCOLOR}" "NOCOLOR")
-PRINT_OPTION("${TOUCHSCREEN}" "TOUCHSCREEN")
 PRINT_OPTION("${STATIC_LINK}" "STATIC_LINK")
 PRINT_OPTION("${INSOURCEBUILD}" "INSOURCEBUILD")
 PRINT_OPTION("${DISABLE_WERROR}" "DISABLE_WERROR")

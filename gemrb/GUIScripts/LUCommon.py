@@ -338,6 +338,10 @@ def SetupHP (pc, Level=None, LevelDiff=None):
 		if CommonTables.Classes.GetRowIndex (KitName) >= 0:
 			ClassName = KitName
 
+	# determine the minimum hp roll
+	ConBonTable = GemRB.LoadTable ("hpconbon")
+	MinRoll = ConBonTable.GetValue (GemRB.GetPlayerStat (pc, IE_CON)-1, 2) # MIN_ROLL column
+
 	#loop through each class and update the hp
 	OldHP = GemRB.GetPlayerStat (pc, IE_MAXHITPOINTS, 1)
 	CurrentHP = 0
@@ -367,20 +371,36 @@ def SetupHP (pc, Level=None, LevelDiff=None):
 		#add all the hp for the given level
 		#we use ceil to ensure each class gets hp
 		for level in range(LowLevel, HiLevel):
+			sides = HPTable.GetValue (level, 0)
 			rolls = HPTable.GetValue (level, 1)
 			bonus = HPTable.GetValue (level, 2)
 
-			# we only do a roll if core diff or higher, or uncheck max
+			# we only do a roll on core difficulty or higher
+			# and if maximum HP rolls (bg2 and later) are disabled
+			# and/or if it is bg1 chargen (I guess too many testers got annoyed)
+			# BUT when we do roll, constitution gives a kind of a luck bonus to the roll
 			if rolls:
-				if GemRB.GetVar ("Difficulty Level") >= 3 and not GemRB.GetVar ("Maximum HP"):
-					CurrentHP += int (GemRB.Roll (rolls, HPTable.GetValue (level, 0), bonus) / Divisor + 0.5)
+				if GemRB.GetVar ("Difficulty Level") >= 3 and not GemRB.GetVar ("Maximum HP") \
+				and not (GUICommon.GameIsBG1() and LowLevel == 0) and MinRoll < sides:
+					if MinRoll > 1:
+						roll = GemRB.Roll (rolls, sides, bonus)
+						if roll-bonus < MinRoll:
+							roll = MinRoll + bonus
+						AddedHP = int (roll / Divisor + 0.5)
+					else:
+						AddedHP = int (GemRB.Roll (rolls, sides, bonus) / Divisor + 0.5)
 				else:
-					CurrentHP += int ((rolls * HPTable.GetValue (level, 0) + bonus) / Divisor + 0.5)
+					AddedHP = int ((rolls * sides + bonus) / Divisor + 0.5)
 			else:
-				CurrentHP += int (bonus / Divisor + 0.5)
-			CurrentHP = int (CurrentHP)
+				AddedHP = int (bonus / Divisor + 0.5)
+			# ensure atleast 1hp is given
+			# this is safe for inactive dualclass levels too (handled above)
+			if AddedHP == 0:
+				AddedHP = 1
+			CurrentHP += AddedHP
 
 	#update our hp values
 	GemRB.SetPlayerStat (pc, IE_MAXHITPOINTS, CurrentHP+OldHP)
-	GemRB.SetPlayerStat (pc, IE_HITPOINTS, GemRB.GetPlayerStat (pc, IE_HITPOINTS, 1)+CurrentHP)
+	# HACK: account also for the new constitution bonus for the current hitpoints
+	GemRB.SetPlayerStat (pc, IE_HITPOINTS, GemRB.GetPlayerStat (pc, IE_HITPOINTS, 1)+CurrentHP+5)
 	return

@@ -85,12 +85,12 @@ class SpriteCover;
 #define IF_JUSTDIED   2     //Died() will return true
 #define IF_FROMGAME   4     //this is an NPC or PC
 #define IF_REALLYDIED 8     //real death happened, actor will be set to dead
-#define IF_NORECTICLE 16    //draw recticle (target mark)
+#define IF_NORETICLE  16    //draw reticle (target mark)
 #define IF_NOINT      32    //cannot interrupt the actions of this actor (save is not possible!)
 #define IF_CLEANUP    64    //actor died chunky death, or other total destruction
 #define IF_RUNNING    128   //actor is running
 //these bits could be set by a WalkTo
-#define IF_RUNFLAGS   (IF_RUNNING|IF_NORECTICLE|IF_NOINT)
+#define IF_RUNFLAGS   (IF_RUNNING|IF_NORETICLE|IF_NOINT)
 //#define IF_BECAMEVISIBLE 0x100//actor just became visible (trigger event)
 #define IF_INITIALIZED   0x200
 #define IF_USEDSAVE      0x400  //actor needed saving throws
@@ -245,6 +245,8 @@ public:
 	ieDword ScriptTicks;
 	// The number of times since UpdateActions() tried to do anything.
 	ieDword IdleTicks;
+	// The number of ticks since the last spellcast
+	ieDword AuraTicks;
 	// The countdown for forced activation by triggers.
 	ieDword TriggerCountdown;
 
@@ -255,6 +257,7 @@ public:
 	ieStrRef DialogName;
 
 	GameScript* Scripts[MAX_SCRIPTS];
+	int scriptlevel;
 
 	// Variables for overhead text.
 	char* overHeadText;
@@ -289,6 +292,7 @@ public:
 	Point LastTargetPos;
 	int SpellHeader;
 	ieResRef SpellResRef;
+	bool InterruptCasting;
 public:
 	/** Gets the Dialog ResRef */
 	const char* GetDialog(void) const
@@ -316,8 +320,6 @@ public:
 	void DisplayHeadText(const char* text);
 	void FixHeadTextPos();
 	void SetScriptName(const char* text);
-	//call this to deny script running in the next AI cycle
-	void DelayedEvent();
 	//call this to enable script running as soon as possible
 	void ImmediateEvent();
 	bool IsPC() const;
@@ -348,8 +350,8 @@ public:
 	/* check for and trigger a wild surge */
 	int CheckWildSurge();
 	/* actor/scriptable casts spell */
-	int CastSpellPoint( ieResRef &SpellRef, const Point &Target, bool deplete, bool instant = false );
-	int CastSpell( ieResRef &SpellRef, Scriptable* Target, bool deplete, bool instant = false );
+	int CastSpellPoint( const Point &Target, bool deplete, bool instant = false, bool nointerrupt = false );
+	int CastSpell( Scriptable* Target, bool deplete, bool instant = false, bool nointerrupt = false );
 	/* spellcasting finished */
 	void CastSpellPointEnd(int level);
 	void CastSpellEnd(int level);
@@ -359,6 +361,7 @@ public:
 	bool TimerExpired(ieDword ID);
 	void StartTimer(ieDword ID, ieDword expiration);
 	virtual char* GetName(int /*which*/) const { return NULL; }
+	bool AuraPolluted();
 private:
 	/* used internally to handle start of spellcasting */
 	int SpellCast(bool instant);
@@ -507,7 +510,6 @@ public:
 	void WalkTo(const Point &Des, int MinDistance = 0);
 	void MoveTo(const Point &Des);
 	void ClearPath();
-	void DrawTargetPoint(const Region &vp);
 	/* returns the most likely position of this actor */
 	Point GetMostLikelyPosition();
 	virtual bool BlocksSearchMap() const = 0;

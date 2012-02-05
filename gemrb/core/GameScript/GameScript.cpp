@@ -95,9 +95,9 @@ static const TriggerLink triggernames[] = {
 	{"currentareais", GameScript::CurrentAreaIs, 0},//checks object
 	{"creaturehidden", GameScript::CreatureHidden, 0},//this is the engine level hiding feature, not the skill
 	{"creatureinarea", GameScript::AreaCheck, 0}, //pst, checks this object
-	{"damagetaken", GameScript::HPLost, 0},
-	{"damagetakengt", GameScript::HPLostGT, 0},
-	{"damagetakenlt", GameScript::HPLostLT, 0},
+	{"damagetaken", GameScript::DamageTaken, 0},
+	{"damagetakengt", GameScript::DamageTakenGT, 0},
+	{"damagetakenlt", GameScript::DamageTakenLT, 0},
 	{"dead", GameScript::Dead, 0},
 	{"delay", GameScript::Delay, 0},
 	{"detect", GameScript::Detect, 0}, //so far i see no difference
@@ -210,6 +210,7 @@ static const TriggerLink triggernames[] = {
 	{"isfacingsavedrotation", GameScript::IsFacingSavedRotation, 0},
 	{"isgabber", GameScript::IsGabber, 0},
 	{"isheartoffurymodeon", GameScript::NightmareModeOn, 0},
+	{"isinguardianmantle", GameScript::IsInGuardianMantle, 0},
 	{"islocked", GameScript::IsLocked, 0},
 	{"isextendednight", GameScript::IsExtendedNight, 0},
 	{"ismarkedspell", GameScript::IsMarkedSpell, 0},
@@ -316,6 +317,9 @@ static const TriggerLink triggernames[] = {
 	{"partyitemcounteq", GameScript::NumItemsParty, 0},
 	{"partyitemcountgt", GameScript::NumItemsPartyGT, 0},
 	{"partyitemcountlt", GameScript::NumItemsPartyLT, 0},
+	{"partylevelvs", GameScript::NumCreatureVsParty, 0},
+	{"partylevelvsgt", GameScript::NumCreatureVsPartyGT, 0},
+	{"partylevelvslt", GameScript::NumCreatureVsPartyLT, 0},
 	{"partymemberdied", GameScript::PartyMemberDied, 0},
 	{"partyrested", GameScript::PartyRested, 0},
 	{"pccanseepoint", GameScript::PCCanSeePoint, 0},
@@ -590,8 +594,12 @@ static const ActionLink actionnames[] = {
 	{"forcehide", GameScript::ForceHide, 0},
 	{"forceleavearealua", GameScript::ForceLeaveAreaLUA, 0},
 	{"forcemarkedspell", GameScript::ForceMarkedSpell, 0},
-	{"forcespell", GameScript::ForceSpell, AF_BLOCKING},
-	{"forcespellpoint", GameScript::ForceSpellPoint, AF_BLOCKING},
+	{"forcespell", GameScript::ForceSpell, AF_BLOCKING|AF_ALIVE},
+	{"forcespellpoint", GameScript::ForceSpellPoint, AF_BLOCKING|AF_ALIVE},
+	{"forcespellpointrange", GameScript::ForceSpellPointRange, AF_BLOCKING|AF_ALIVE},
+	{"forcespellpointrangeres", GameScript::ForceSpellPointRange, AF_BLOCKING|AF_ALIVE},
+	{"forcespellrange", GameScript::ForceSpellRange, AF_BLOCKING|AF_ALIVE},
+	{"forcespellrangeres", GameScript::ForceSpellRange, AF_BLOCKING|AF_ALIVE},
 	{"forceusecontainer", GameScript::ForceUseContainer,AF_BLOCKING},
 	{"formation", GameScript::Formation, AF_BLOCKING},
 	{"fullheal", GameScript::FullHeal, 0},
@@ -639,7 +647,7 @@ static const ActionLink actionnames[] = {
 	{"incinternal", GameScript::IncInternal, 0}, //pst
 	{"incrementinternal", GameScript::IncInternal, 0},//iwd
 	{"incmoraleai", GameScript::IncMoraleAI, 0},
-	{"incrementchapter", GameScript::IncrementChapter, AF_BLOCKING},
+	{"incrementchapter", GameScript::IncrementChapter, 0},
 	{"incrementextraproficiency", GameScript::IncrementExtraProficiency, 0},
 	{"incrementglobal", GameScript::IncrementGlobal,AF_MERGESTRINGS},
 	{"incrementglobalonce", GameScript::IncrementGlobalOnce,AF_MERGESTRINGS},
@@ -739,10 +747,10 @@ static const ActionLink actionnames[] = {
 	{"randomwalk", GameScript::RandomWalk, AF_BLOCKING|AF_ALIVE},
 	{"randomwalkcontinuous", GameScript::RandomWalkContinuous, AF_BLOCKING|AF_ALIVE},
 	{"realsetglobaltimer", GameScript::RealSetGlobalTimer,AF_MERGESTRINGS},
-	{"reallyforcespell", GameScript::ReallyForceSpell, AF_BLOCKING},
+	{"reallyforcespell", GameScript::ReallyForceSpell, AF_BLOCKING|AF_ALIVE},
 	{"reallyforcespelldead", GameScript::ReallyForceSpellDead, AF_BLOCKING},
-	{"reallyforcespelllevel", GameScript::ReallyForceSpell, AF_BLOCKING},//this is the same action
-	{"reallyforcespellpoint", GameScript::ReallyForceSpellPoint, AF_BLOCKING},
+	{"reallyforcespelllevel", GameScript::ReallyForceSpell, AF_BLOCKING|AF_ALIVE},//this is the same action
+	{"reallyforcespellpoint", GameScript::ReallyForceSpellPoint, AF_BLOCKING|AF_ALIVE},
 	{"recoil", GameScript::Recoil, AF_ALIVE},
 	{"regainpaladinhood", GameScript::RegainPaladinHood, 0},
 	{"regainrangerhood", GameScript::RegainRangerHood, 0},
@@ -916,7 +924,7 @@ static const ActionLink actionnames[] = {
 	{"takepartyitemnum", GameScript::TakePartyItemNum, 0},
 	{"takepartyitemrange", GameScript::TakePartyItemRange, 0},
 	{"teleportparty", GameScript::TeleportParty, 0},
-	{"textscreen", GameScript::TextScreen, AF_BLOCKING},
+	{"textscreen", GameScript::TextScreen, 0},
 	{"timedmovetopoint", GameScript::TimedMoveToPoint,AF_BLOCKING|AF_ALIVE},
 	{"tomsstringdisplayer", GameScript::DisplayMessage, 0},
 	{"transformitem", GameScript::TransformItem, 0},
@@ -1822,13 +1830,6 @@ bool GameScript::Update(bool *continuing, bool *done)
 	if (!script)
 		return false;
 
-	//ieDword thisTime = core->GetGame()->Ticks;
-	//if (( thisTime - lastRunTime ) < scriptRunDelay) {
-	//	return false;
-	//}
-
-	//lastRunTime = thisTime;
-
 	if(!(MySelf->GetInternalFlag()&IF_ACTIVE) ) {
 		return false;
 	}
@@ -2008,7 +2009,10 @@ Response* GameScript::ReadResponse(DataStream* stream)
 			printMessage("GameScript","Invalid script action ID!",LIGHT_RED);
 		} else {
 			if (actionflags[aC->actionID] & AF_SCRIPTLEVEL) {
-				aC->int0Parameter = scriptlevel;
+				//can't set this here, because the same script may be loaded
+				//into different slots. Overwriting it with an invalid value
+				//just to find bugs faster
+				aC->int0Parameter = -1;
 			}
 		}
 		rE->actions.push_back( aC );
@@ -2111,7 +2115,7 @@ int Trigger::Evaluate(Scriptable* Sender)
 				triggerID, tmpstr );
 	}
 	int ret = func( Sender, this );
-	if (flags & NEGATE_TRIGGER) {
+	if (flags & TF_NEGATE) {
 		return !ret;
 	}
 	return ret;
@@ -2274,7 +2278,7 @@ Trigger* GenerateTrigger(char* String)
 	int negate = 0;
 	if (*String == '!') {
 		String++;
-		negate = 1;
+		negate = TF_NEGATE;
 	}
 	int len = strlench(String,'(')+1; //including (
 	int i = triggersTable->FindString(String, len);

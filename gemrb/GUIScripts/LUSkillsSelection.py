@@ -186,22 +186,17 @@ def SetupSkillsWindow (pc, type, window, callback, level1=[0,0,0], level2=[1,1,1
 			#really don't have an entry
 			SkillPointsLeft = 0
 		else:
-			#get racial values for dual-classing
-			SkillRacTable = GemRB.LoadTable ("SKILLRAC")
-			Race = CommonTables.Races.FindValue (3, GemRB.GetPlayerStat (pc, IE_RACE))
-			Race = CommonTables.Races.GetRowName (Race)
-
 			#get the skill values
 			for i in range(SkillsTable.GetRowCount()-2):
 				SkillName = SkillsTable.GetRowName (i+2)
 				SkillID = SkillsTable.GetValue (SkillName, "ID")
-				if type != LUSKILLS_TYPE_LEVELUP: #give racial bonuses to starting classes
-					SkillValue = SkillRacTable.GetValue (Race, SkillName)
-				else:
-					SkillValue = GemRB.GetPlayerStat (pc, SkillID, 1)
+				SkillValue = GemRB.GetPlayerStat (pc, SkillID)
+				BaseSkillValue = GemRB.GetPlayerStat (pc, SkillID, 1)
 				GemRB.SetVar("Skill "+str(i), SkillValue)
 				GemRB.SetVar("SkillBase "+str(i), SkillValue)
-				TotalSkillsAssignable += LUSKILLS_MAX-SkillValue
+				# display the modified stat to avoid confusion (account for dex, race and effect boni)
+				GemRB.SetVar("SkillDisplayMod "+str(i), SkillValue-BaseSkillValue)
+				TotalSkillsAssignable += LUSKILLS_MAX-BaseSkillValue
 
 		#protect against having more skills than we can assign
 		if SkillPointsLeft > TotalSkillsAssignable:
@@ -382,7 +377,7 @@ def SkillsSave (pc):
 	for i in range(SkillsTable.GetRowCount() - 2):
 		SkillName = SkillsTable.GetRowName (i+2)
 		SkillID = SkillsTable.GetValue (SkillName, "ID")
-		SkillValue = GemRB.GetVar ("Skill "+str(i))
+		SkillValue = GemRB.GetVar ("Skill "+str(i)) - GemRB.GetVar("SkillDisplayMod "+str(i))
 		if SkillValue >= 0:
 			GemRB.SetPlayerStat (pc, SkillID, SkillValue)
 

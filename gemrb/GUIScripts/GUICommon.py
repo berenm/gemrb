@@ -26,7 +26,6 @@ from ie_restype import RES_CHU, RES_2DA, RES_WMP, RES_ARE
 from ie_spells import LS_MEMO, LSR_KNOWN, LSR_LEVEL, LSR_STAT
 from GUIDefines import *
 from ie_stats import *
-from ie_action import ACT_QSLOT1, ACT_QSLOT2, ACT_QSLOT3, ACT_QSLOT4, ACT_QSLOT5
 from ie_slots import SLOT_ALL
 
 OtherWindowFn = None
@@ -85,6 +84,11 @@ def GetWindowPack():
 
 	# fallback to the smallest resolution
 	return default
+
+def LocationPressed ():
+	AreaInfo = GemRB.GetAreaInfo()
+	print( "%s [%d.%d]\n"%(AreaInfo["CurrentArea"], AreaInfo["PositionX"], AreaInfo["PositionY"]) );
+	return
 
 def RestPress ():
 	GemRB.RestParty(0,0,0)
@@ -177,12 +181,19 @@ def GetLearnablePriestSpells (Class, Alignment, Level):
 		Learnable.append (SpellName)
 	return Learnable
 
+# there is no separate druid spell table in the originals
+#FIXME: try to do this in a non-hard way?
+def GetPriestSpellTable(tablename):
+	if not GemRB.HasResource (tablename, RES_2DA):
+		if tablename == "MXSPLDRU":
+			return "MXSPLPRS"
+	return tablename
+
 def SetupSpellLevels (pc, TableName, Type, Level):
 	#don't die on a missing reference
-	#FIXME: try to do this in a non-hard way?
-	if not GemRB.HasResource (TableName, RES_2DA):
-		if TableName == "MXSPLDRU":
-			SetupSpellLevels (pc, "MXSPLPRS", Type, Level)
+	tmp = GetPriestSpellTable(TableName)
+	if tmp != TableName:
+		SetupSpellLevels (pc, tmp, Type, Level)
 		return
 
 	Table = GemRB.LoadTable (TableName)
@@ -200,10 +211,9 @@ def SetupSpellLevels (pc, TableName, Type, Level):
 
 def UnsetupSpellLevels (pc, TableName, Type, Level):
 	#don't die on a missing reference
-	#FIXME: try to do this in a non-hard way?
-	if not GemRB.HasResource (TableName, RES_2DA):
-		if TableName == "MXSPLDRU":
-			UnsetupSpellLevels (pc, "MXSPLPRS", Type, Level)
+	tmp = GetPriestSpellTable(TableName)
+	if tmp != TableName:
+		UnsetupSpellLevels (pc, tmp, Type, Level)
 		return
 
 	Table = GemRB.LoadTable (TableName)
@@ -384,7 +394,11 @@ def CannotLearnSlotSpell ():
 	if GemRB.GetPlayerStat (pc, IE_CLASS) == 19:
 		return LSR_STAT
 
-	slot_item = GemRB.GetSlotItem (pc, GemRB.GetVar ("ItemButton"))
+	if GameIsPST():
+		import GUIINV
+		slot, slot_item = GUIINV.ItemHash[GemRB.GetVar ('ItemButton')]
+	else:
+		slot_item = GemRB.GetSlotItem (pc, GemRB.GetVar ("ItemButton"))
 	spell_ref = GemRB.GetItem (slot_item['ItemResRef'], pc)['Spell']
 	spell = GemRB.GetSpell (spell_ref)
 
@@ -706,12 +720,15 @@ def IsMultiClassed (actor, verbose):
 	ClassNames = CommonTables.Classes.GetRowName(ClassIndex).split("_")
 
 	# loop through each class and test it as a mask
-	# TODO: make 16 dynamic? -- allows for custom classes (not just kits)
-	for i in range (1, 16):
+	ClassCount = CommonTables.Classes.GetRowCount()
+	for i in range (1, ClassCount):
 		if IsMulti&Mask: # it's part of this class
 			#we need to place the classes in the array based on their order in the name,
 			#NOT the order they are detected in
 			CurrentName = CommonTables.Classes.GetRowName (CommonTables.Classes.FindValue (5, i));
+			if CurrentName == "*":
+				# we read too far, as the upper range limit is greater than the number of "single" classes
+				break
 			for j in range(len(ClassNames)):
 				if ClassNames[j] == CurrentName:
 					Classes[j] = i # mask is (i-1)^2 where i is class id
@@ -720,6 +737,7 @@ def IsMultiClassed (actor, verbose):
 
 	# in case we couldn't figure out to which classes the multi belonged
 	if NumClasses < 2:
+		print "ERROR: couldn't figure out the individual classes of multiclass", ClassNames
 		return (0,-1,-1,-1)
 
 	# return the tuple
@@ -819,8 +837,11 @@ def CanDualClass(actor):
 		ClassTitle = CommonTables.KitList.GetValue (KitIndex, 0)
 	Row = DualClassTable.GetRowIndex (ClassTitle)
 
-	# a lookup table for the DualClassTable columns
-	classes = [ "FIGHTER", "CLERIC", "MAGE", "THIEF", "DRUID", "RANGER" ]
+	# create a lookup table for the DualClassTable columns
+	classes = []
+	for col in range(DualClassTable.GetColumnCount()):
+		classes.append(DualClassTable.GetColumnName(col))
+
 	matches = []
 	Sum = 0
 	for col in range (0, DualClassTable.GetColumnCount ()):
@@ -882,6 +903,29 @@ def CanDualClass(actor):
 		return 1
 	return 0
 
+def IsWarrior (actor):
+	Class = GemRB.GetPlayerStat (actor, IE_CLASS)
+	ClassIndex = CommonTables.Classes.FindValue (5, Class)
+	ClassName = CommonTables.Classes.GetRowName (ClassIndex)
+	IsWarrior = CommonTables.ClassSkills.GetValue (ClassName, "NO_PROF")
+
+	# warriors get only a -2 penalty for wielding weapons they are not proficient with
+	IsWarrior = (IsWarrior == -2)
+
+	Dual = IsDualClassed (actor, 0)
+	if Dual[0] > 0:
+		DualedFrom = GemRB.GetPlayerStat (actor, IE_MC_FLAGS) & MC_WAS_ANY_CLASS
+		MCColumn = CommonTables.Classes.GetColumnIndex ("MC_WAS_ID")
+		FirstClassIndex = CommonTables.Classes.FindValue (MCColumn, DualedFrom)
+		FirstClassName = CommonTables.Classes.GetRowName (FirstClassIndex)
+		OldIsWarrior = CommonTables.ClassSkills.GetValue (FirstClassName, "NO_PROF")
+		# there are no warrior to warrior dualclasses, so if the previous class was one, the current one certainly isn't
+		if OldIsWarrior == -2:
+			return 0
+		# but there are also non-warrior to non-warrior dualclasses, so just use the new class check
+
+	return IsWarrior
+
 def SetupDamageInfo (pc, Button):
 	hp = GemRB.GetPlayerStat (pc, IE_HITPOINTS)
 	hp_max = GemRB.GetPlayerStat (pc, IE_MAXHITPOINTS)
@@ -901,6 +945,28 @@ def SetupDamageInfo (pc, Button):
 
 	return ratio_str
 
+def SetCurrentDateTokens (stat):
+	# NOTE: currentTime is in seconds, joinTime is in seconds * 15
+	#   (script updates). In each case, there are 60 seconds
+	#   in a minute, 24 hours in a day, but ONLY 5 minutes in an hour!!
+	# Hence currentTime (and joinTime after div by 15) has
+	#   7200 secs a day (60 * 5 * 24)
+	currentTime = GemRB.GetGameTime ()
+	joinTime = stat['JoinDate'] - stat['AwayTime']
+
+	party_time = currentTime - (joinTime / 15)
+	days = party_time / 7200
+	hours = (party_time % 7200) / 300
+
+	# it is true, they changed the token
+	if GameIsBG2():
+		GemRB.SetToken ('GAMEDAY', str (days))
+	else:
+		GemRB.SetToken ('GAMEDAYS', str (days))
+	GemRB.SetToken ('HOUR', str (hours))
+
+	return (days, hours)
+
 # return ceil(n/d)
 # 
 def ceildiv (n, d):
@@ -910,6 +976,10 @@ def ceildiv (n, d):
 		return (n+d+1)/d
 	else:
 		return (n+d-1)/d
+
+# a placeholder for unimplemented and hardcoded key actions
+def ResolveKey():
+	return
 
 GameWindow = GUIClasses.GWindow(0)
 GameControl = GUIClasses.GControl(0,0)

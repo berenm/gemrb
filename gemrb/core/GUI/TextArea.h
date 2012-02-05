@@ -92,6 +92,8 @@ public:
 	void PadMinRow();
 	/** Sets up scrolling, tck is the scrolling speed */
 	void SetupScroll(unsigned long tck);
+	/** Per Pixel scrolling */
+	void ScrollToY(unsigned long y, Control* sender);
 	/** Sets the Fonts */
 	void SetFonts(Font* init, Font* text);
 	/** Returns Number of Rows */
@@ -102,6 +104,8 @@ public:
 	int GetVisibleRowCount();
 	/** Returns Starting Row */
 	int GetTopIndex();
+	/** Returns total height of the text */
+	int GetRowHeight();
 	/** Set Starting Row */
 	void SetRow(int row);
 	/** Sets preserved lines */
@@ -127,6 +131,7 @@ private: // Private attributes
 	int keeplines;
 	/** vertical offset for smooth scrolling */
 	int smooth;
+	unsigned long TextYPos;
 	/** timer for scrolling */
 	unsigned long starttime;
 	/** timer ticks for scrolling (speed) */
@@ -160,6 +165,8 @@ public: //Events
 	void OnKeyPress(unsigned char Key, unsigned short Mod);
 	/** Special Key Press */
 	void OnSpecialKeyPress(unsigned char Key);
+	/** Mousewheel scroll */
+	void OnMouseWheelScroll(short x, short y);
 	/** Mouse Over Event */
 	void OnMouseOver(unsigned short x, unsigned short y);
 	/** Mouse Button Up */

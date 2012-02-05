@@ -172,7 +172,7 @@ struct PolymorphCache;
 #define APP_HALFTRANS    2           //half transparent
 #define APP_DEATHVAR     16          //set death variable
 #define APP_DEATHTYPE    32          //count creature type deaths
-//64
+#define APP_ADDKILL      64          //prepend KILL_ to the creature type
 #define APP_FACTION      128         //count killed faction
 #define APP_TEAM         0x100       //count killed team
 #define APP_INVULNERABLE 0x200       //invulnerable
@@ -222,6 +222,7 @@ struct WeaponInfo {
 	ieDword itemflags;
 	ieDword prof;
 	bool backstabbing;
+	ieDword wflags;
 };
 
 extern void ReleaseMemoryActor();
@@ -290,6 +291,7 @@ public:
 	int WMLevelMod;
 
 	int LastDamageType;
+	int LastDamage;
 	Point FollowOffset;//follow lastfollowed at this offset
 	Point HomeLocation;//spawnpoint, return here after rest
 
@@ -332,8 +334,8 @@ private:
 	Projectile* attackProjectile ;
 	/** paint the actor itself. Called internally by Draw() */
 	void DrawActorSprite(const Region &screen, int cx, int cy, const Region& bbox,
-				 SpriteCover*& sc, Animation** anims,
-				 unsigned char Face, const Color& tint);
+				SpriteCover*& sc, Animation** anims,
+				unsigned char Face, const Color& tint);
 
 	/** fixes the palette */
 	void SetupColors();
@@ -357,6 +359,7 @@ private:
 	int GetProficiency(int proftype) const;
 	/** Re/Inits the Modified vector for PCs/NPCs */
 	void RefreshPCStats();
+	void RefreshHP();
 	bool ShouldHibernate();
 	void ApplyClassClab(int cls, bool remove);
 	bool ShouldDrawCircle();
@@ -491,6 +494,8 @@ public:
 	void GetHit();
 	/* called when actor starts to cast a spell*/
 	bool HandleCastingStance(const ieResRef SpellResRef, bool deplete);
+	/* check if the actor should be just knocked out by a lethal hit */
+	bool AttackIsStunning(int damagetype) const;
 	/* deals damage to this actor */
 	int Damage(int damage, int damagetype, Scriptable *hitter, int modtype=MOD_ADDITIVE);
 	/* displays the damage taken and other details (depends on the game type) */
@@ -539,7 +544,7 @@ public:
 	/* returns the ranged weapon header associated with the currently equipped projectile */
 	ITMExtHeader *GetRangedWeapon(WeaponInfo &wi) const;
 	/* Returns current weapon range and extended header
-	 if range is nonzero, then which is valid */
+	if range is nonzero, then which is valid */
 	ITMExtHeader* GetWeapon(WeaponInfo &wi, bool leftorright=false) const;
 	/* Creates player statistics */
 	void CreateStats();
@@ -569,11 +574,13 @@ public:
 	int GetDefense(int DamageType, Actor *attacker) const;
 	/* get the current hit bonus */
 	bool GetCombatDetails(int &tohit, bool leftorright, WeaponInfo &wi, ITMExtHeader *&header, ITMExtHeader *&hittingheader,\
-		ieDword &Flags, int &DamageBonus, int &speed, int &CriticalBonus, int &style, Actor *target) const;
+		int &DamageBonus, int &speed, int &CriticalBonus, int &style, Actor *target) const;
 	/* performs attack against target */
 	void PerformAttack(ieDword gameTime);
-	/* ensures we can deal damage to a target */
-	void ModifyDamage(Actor *target, Scriptable *hitter, int &damage, int &resisted, int damagetype, WeaponInfo *wi, bool critical);
+	/* calculates strength (dexterity) based damage adjustment */
+	int WeaponDamageBonus(WeaponInfo *wi);
+	/* adjusts damage dealt to this actor  */
+	void ModifyDamage(Scriptable *hitter, int &damage, int &resisted, int damagetype, WeaponInfo *wi, bool critical);
 	/* applies modal spell etc, if needed */
 	void UpdateActorState(ieDword gameTime);
 	/* returns the hp adjustment based on constitution */
@@ -620,6 +627,8 @@ public:
 	void RemoveVVCell(const ieResRef vvcname, bool graceful);
 	/* returns true if actor already has the overlay (slow) */
 	bool HasVVCCell(const ieResRef resource) const;
+	/* returns overlay (or underlay) if actor already has it, faster */
+	ScriptedAnimation *GetVVCCell(const vvcVector *vvcCells, const ieResRef resource) const;
 	/* returns overlay if actor already has it (slow) */
 	ScriptedAnimation *GetVVCCell(const ieResRef resource) const;
 	/* returns the vvc pointer to a hardcoded overlay */
@@ -718,7 +727,7 @@ public:
 	void UseExit(ieDword exitID);
 	//int GetReaction() const;
 	/* Similar to Roll, but takes luck into account */
-	int LuckyRoll(int dice, int size, int add, ieDword flags=1, Actor* opponent=NULL) const;
+	int LuckyRoll(int dice, int size, int add, ieDword flags=LR_CRITICAL, Actor* opponent=NULL) const;
 	/* removes normal invisibility (type 0) */
 	void CureInvisibility();
 	/* removes sanctuary */
@@ -744,5 +753,9 @@ public:
 	bool PCInDark() const;
 	/* computes the actor's classmask (iwd2) */
 	int GetClassMask() const;
+	/* computes the thieving skill bonus from race and dexterity */
+	int GetSkillBonus(unsigned int col) const;
+	/* returns true for party members (and familiars) */
+	bool IsPartyMember() const;
 };
 #endif

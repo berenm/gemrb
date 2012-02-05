@@ -41,6 +41,8 @@
 #include "TileMap.h"
 #include "Video.h"
 #include "damages.h"
+#include "ie_cursors.h"
+#include "opcode_params.h"
 #include "GameScript/GSUtils.h"
 #include "GUI/EventMgr.h"
 #include "GUI/Window.h"
@@ -114,6 +116,7 @@ GameControl::GameControl(void)
 	distance = 0;
 	MouseIsDown = false;
 	DrawSelectionRect = false;
+	FormationRotation = false;
 	overDoor = NULL;
 	overContainer = NULL;
 	overInfoPoint = NULL;
@@ -191,12 +194,9 @@ Point GameControl::GetFormationOffset(ieDword formation, ieDword pos)
 	return formations[formation][pos];
 }
 
-//Moves an actor to a new position, keeping the current formation
 //WARNING: don't pass p as a reference because it gets modified
-void GameControl::MoveToPointFormation(Actor *actor, unsigned int pos, Point src, Point p)
+Point GameControl::GetFormationPoint(Map *map, unsigned int pos, Point src, Point p)
 {
-	Map* map = actor->GetCurrentArea() ;
-
 	int formation=core->GetGame()->GetFormation();
 	if (pos>=FORMATIONSIZE) pos=FORMATIONSIZE-1;
 
@@ -234,7 +234,7 @@ void GameControl::MoveToPointFormation(Actor *actor, unsigned int pos, Point src
 		p.x*=16;
 		p.y*=12;
 	}
-	CreateMovement(actor, p);
+	return p;
 }
 
 void GameControl::Center(unsigned short x, unsigned short y)
@@ -267,7 +267,7 @@ void GameControl::CreateMovement(Actor *actor, const Point &p)
 	}
 
 	actor->AddAction( action );
-	// force action so that we get target recticles immediately
+	// force action so that we get target reticles immediately
 	// FIXME
 	actor->ProcessActions();
 }
@@ -344,6 +344,45 @@ void GameControl::DrawArrowMarker(const Region &screen, Point p, const Region &v
 	if (arrow_orientations[draw]>=0) {
 		video->BlitGameSprite( core->GetScrollCursorSprite(arrow_orientations[draw], 0), p.x+screen.x, p.y+screen.y, 0, black, NULL);
 	}
+}
+
+void GameControl::DrawTargetReticle(Point p, int size, bool animate)
+{
+	// reticles are never drawn in cutscenes
+	if (GetScreenFlags()&SF_CUTSCENE)
+		return;
+
+	unsigned short step = 0;
+	if (animate) {
+		// generates "step" from sequence 3 2 1 0 1 2 3 4
+		// updated each 1/15 sec
+		++step = tp_steps [(GetTickCount() >> 6) & 7];
+	} else {
+		step = 3;
+	}
+	if (size < 3) size = 3;
+
+	/* segments should not go outside selection radius */
+	unsigned short xradius = (size * 4) - 5;
+	unsigned short yradius = (size * 3) - 5;
+
+	Color color = {//green
+		0x00, 0xff, 0x00, 0xff
+	};
+	Region viewport = core->GetVideoDriver()->GetViewport();
+	// TODO: 0.5 and 0.7 are pretty much random values
+	// right segment
+	core->GetVideoDriver()->DrawEllipseSegment( p.x + step - viewport.x, p.y - viewport.y, xradius,
+								yradius, color, -0.5, 0.5 );
+	// top segment
+	core->GetVideoDriver()->DrawEllipseSegment( p.x - viewport.x, p.y - step - viewport.y, xradius,
+								yradius, color, -0.7 - M_PI_2, 0.7 - M_PI_2 );
+	// left segment
+	core->GetVideoDriver()->DrawEllipseSegment( p.x - step - viewport.x, p.y - viewport.y, xradius,
+								yradius, color, -0.5 - M_PI, 0.5 - M_PI );
+	// bottom segment
+	core->GetVideoDriver()->DrawEllipseSegment( p.x - viewport.x, p.y + step - viewport.y, xradius,
+								yradius, color, -0.7 - M_PI - M_PI_2, 0.7 - M_PI - M_PI_2 );
 }
 
 /** Draws the Control on the Output Display */
@@ -452,6 +491,10 @@ void GameControl::Draw(unsigned short x, unsigned short y)
 
 	Container *c;
 	for (idx = 0; (c = area->TMap->GetContainer( idx )); idx++) {
+		if (c->Flags & CONT_DISABLED) {
+			continue;
+		}
+
 		c->Highlight = false;
 		if (overContainer == c && target_mode) {
 			if (c->VisibleTrap(0) || (c->Flags & CONT_LOCKED)) {
@@ -508,6 +551,27 @@ void GameControl::Draw(unsigned short x, unsigned short y)
 	if (DrawSelectionRect) {
 		CalculateSelection( p );
 		video->DrawRect( SelectionRect, green, false, true );
+	}
+
+	// draw reticles
+	if (FormationRotation) {
+		FormationApplicationPoint.x = lastMouseX;
+		FormationApplicationPoint.y = lastMouseY;
+		core->GetVideoDriver()->ConvertToGame( FormationApplicationPoint.x, FormationApplicationPoint.y );
+
+		Actor *actor;
+		int max = game->GetPartySize(false);
+		// we only care about PCs and not summons for this. the summons will be included in
+		// the final mouse up event.
+		int formationPos = 0;
+		for(int idx = 1; idx<=max; idx++) {
+			actor = game->FindPC(idx);
+			if(actor->IsSelected()) {
+				// transform the formation point
+				p = GetFormationPoint(actor->GetCurrentArea(), formationPos++, FormationApplicationPoint, FormationPivotPoint);
+				DrawTargetReticle(p, 4, false);
+			}
+		}
 	}
 
 	// Show wallpolygons
@@ -770,7 +834,8 @@ void GameControl::OnKeyRelease(unsigned char Key, unsigned short Mod)
 						target = overDoor;
 					}
 					if (target) {
-						src->CastSpell( TestSpell, target, false );
+						src->SetSpellResRef(TestSpell);
+						src->CastSpell(target, false);
 						if (src->LastTarget) {
 							src->CastSpellEnd(0);
 						} else {
@@ -1004,10 +1069,10 @@ void GameControl::OnKeyRelease(unsigned char Key, unsigned short Mod)
 		case ' ': //soft pause
 			DialogueFlags ^= DF_FREEZE_SCRIPTS;
 			if (DialogueFlags&DF_FREEZE_SCRIPTS) {
-				displaymsg->DisplayConstantString(STR_PAUSED,0xff0000);
+				displaymsg->DisplayConstantString(STR_PAUSED, DMC_RED);
 				SetDisplayText(STR_PAUSED, 0); // time 0 = removed instantly on unpause
 			} else {
-				displaymsg->DisplayConstantString(STR_UNPAUSED,0xff0000);
+				displaymsg->DisplayConstantString(STR_UNPAUSED, DMC_RED);
 			}
 			break;
 		case GEM_ALT: //alt key (shows containers)
@@ -1158,6 +1223,10 @@ int GameControl::GetCursorOverDoor(Door *overDoor) const
 //returns the appropriate cursor over a container (or pile)
 int GameControl::GetCursorOverContainer(Container *overContainer) const
 {
+	if (overContainer->Flags & CONT_DISABLED) {
+		return lastCursor;
+	}
+
 	if (target_mode == TARGET_MODE_PICK) {
 		if (overContainer->VisibleTrap(0)) {
 			return IE_CURSOR_TRAP;
@@ -1294,6 +1363,10 @@ void GameControl::OnMouseOver(unsigned short x, unsigned short y)
 	overContainer = area->TMap->GetContainer( p );
 
 	if (!DrawSelectionRect) {
+		if (FormationRotation) {
+			nextCursor = IE_CURSOR_USE;
+			goto end_function;
+		}
 		if (overDoor) {
 			nextCursor = GetCursorOverDoor(overDoor);
 		}
@@ -1627,6 +1700,14 @@ void GameControl::TryToCast(Actor *source, Actor *tgt)
 	source->ClearPath();
 	source->ClearActions();
 
+	// cannot target spells on invisible or sanctuaried creatures
+	// invisible actors are invisible, so this is usually impossible by itself, but improved invisibility changes that
+	if ((tgt->GetStat(IE_STATE_ID)&STATE_INVISIBLE) || tgt->HasSpellState(SS_SANCTUARY)) {
+		displaymsg->DisplayConstantStringName(STR_NOSEE_NOCAST, DMC_RED, source);
+		ResetTargetMode();
+		return;
+	}
+
 	spellCount--;
 	if (spellOrItem>=0) {
 		if (spellIndex<0) {
@@ -1684,6 +1765,11 @@ void GameControl::TryToTalk(Actor *source, Actor *tgt)
 void GameControl::HandleContainer(Container *container, Actor *actor)
 {
 	char Tmp[256];
+
+	//container is disabled, it should not react
+	if (container->Flags & CONT_DISABLED) {
+		return;
+	}
 
 	if ((target_mode == TARGET_MODE_CAST) && spellCount) {
 		//we'll get the container back from the coordinates
@@ -1770,8 +1856,8 @@ bool GameControl::HandleActiveRegion(InfoPoint *trap, Actor * actor, Point &p)
 	switch(trap->Type) {
 		case ST_TRAVEL:
 			trap->AddTrigger(TriggerEntry(trigger_clicked, actor->GetGlobalID()));
-			// exit usage is handled by caller for now
-			// actor->UseExit(trap->GetGlobalID());
+			//clear the go closer flag
+			trap->GetCurrentArea()->LastGoCloser = 0;
 			return false;
 		case ST_TRIGGER:
 			//the importer shouldn't load the script
@@ -1818,6 +1904,10 @@ void GameControl::OnMouseDown(unsigned short x, unsigned short y, unsigned short
 
 	short px=x;
 	short py=y;
+
+	core->GetVideoDriver()->ConvertToGame( px, py );
+	FormationRotation = false;
+
 	DoubleClick = false;
 	switch(Button)
 	{
@@ -1827,10 +1917,20 @@ void GameControl::OnMouseDown(unsigned short x, unsigned short y, unsigned short
 	case GEM_MB_SCRLDOWN:
 		OnSpecialKeyPress(GEM_DOWN);
 		break;
+	case GEM_MB_MENU: //right click.
+		if (target_mode == TARGET_MODE_NONE) {
+			DrawSelectionRect = false;
+			MouseIsDown = false;
+			if (core->GetGame()->selected.size() > 1) {
+				FormationRotation = true;
+				FormationPivotPoint.x = px;
+				FormationPivotPoint.y = py;
+			}
+		}
+		break;
 	case GEM_MB_ACTION|GEM_MB_DOUBLECLICK:
 		DoubleClick = true;
 	case GEM_MB_ACTION:
-		core->GetVideoDriver()->ConvertToGame( px, py );
 		MouseIsDown = true;
 		SelectionRect.x = px;
 		SelectionRect.y = py;
@@ -1838,9 +1938,9 @@ void GameControl::OnMouseDown(unsigned short x, unsigned short y, unsigned short
 		StartY = py;
 		SelectionRect.w = 0;
 		SelectionRect.h = 0;
-#ifdef TOUCHSCREEN
-		touched=true;
-#endif
+		if (touchScrollAreasEnabled) {
+			touched=true;
+		}
 	}
 }
 
@@ -1912,7 +2012,8 @@ void GameControl::OnMouseUp(unsigned short x, unsigned short y, unsigned short B
 	}
 
 	//hidden actors are not selectable by clicking on them
-	Actor* actor = area->GetActor( p, GA_DEFAULT /*| GA_NO_DEAD */| GA_NO_HIDDEN | target_types);
+	Actor* actor = NULL;
+	if (!FormationRotation) actor = area->GetActor( p, GA_DEFAULT /*| GA_NO_DEAD */| GA_NO_HIDDEN | target_types);
 	if (Button == GEM_MB_MENU) {
 		if (actor) {
 			//from GSUtils
@@ -1922,12 +2023,18 @@ void GameControl::OnMouseUp(unsigned short x, unsigned short y, unsigned short B
 		core->GetDictionary()->SetAt( "MenuX", x );
 		core->GetDictionary()->SetAt( "MenuY", y );
 		core->GetGUIScriptEngine()->RunFunction( "GUICommon", "OpenFloatMenuWindow" );
-		return;
+		if (!FormationRotation) {
+			return;
+		}
+		FormationRotation = false;
+		int x,y;
+		//This hack is to refresh the mouse cursor
+		core->GetVideoDriver()->GetMousePos(x,y);
+		//calling into the videodriver to set the mouseposition won't work
+		core->GetEventMgr()->MouseMove(x,y);
 	}
 
-	if (Button != GEM_MB_ACTION) {
-		return;
-	}
+	if (Button > GEM_MB_MENU) return;
 
 	if (!game->selected.size()) {
 		//TODO: this is a hack, we need some restructuring here
@@ -1947,29 +2054,30 @@ void GameControl::OnMouseUp(unsigned short x, unsigned short y, unsigned short B
 		pc = game->selected[0];
 	}
 	if (!actor) {
-		//add a check if you don't want some random monster handle doors and such
-		if (overDoor) {
-			HandleDoor(overDoor, pc);
-			return;
-		}
-		if (overContainer) {
-			HandleContainer(overContainer, pc);
-			return;
-		}
-		if (overInfoPoint) {
-			if (overInfoPoint->Type==ST_TRAVEL) {
-				int i = game->selected.size();
-				ieDword exitID = overInfoPoint->GetGlobalID();
-				while(i--) {
-					game->selected[i]->UseExit(exitID);
-				}
-			}
-			if (HandleActiveRegion(overInfoPoint, pc, p)) {
-				core->SetEventFlag(EF_RESETTARGET);
+		if (Button == GEM_MB_ACTION) {
+			//add a check if you don't want some random monster handle doors and such
+			if (overDoor) {
+				HandleDoor(overDoor, pc);
 				return;
 			}
+			if (overContainer) {
+				HandleContainer(overContainer, pc);
+				return;
+			}
+			if (overInfoPoint) {
+				if (overInfoPoint->Type==ST_TRAVEL) {
+					int i = game->selected.size();
+					ieDword exitID = overInfoPoint->GetGlobalID();
+					while(i--) {
+						game->selected[i]->UseExit(exitID);
+					}
+				}
+				if (HandleActiveRegion(overInfoPoint, pc, p)) {
+					core->SetEventFlag(EF_RESETTARGET);
+					return;
+				}
+			}
 		}
-
 		//just a single actor, no formation
 		if (game->selected.size()==1) {
 			//the player is using an item or spell on the ground
@@ -2003,6 +2111,7 @@ void GameControl::OnMouseUp(unsigned short x, unsigned short y, unsigned short B
 				party.push_back(act);
 			}
 		}
+		//summons etc
 		for (i = 0; i < game->selected.size(); i++) {
 			Actor *act = game->selected[i];
 			if (!act->InParty) {
@@ -2011,12 +2120,24 @@ void GameControl::OnMouseUp(unsigned short x, unsigned short y, unsigned short B
 		}
 
 		//party formation movement
-		Point src = party[0]->Pos;
+		Point src;
+		//p = FormationPivotPoint;
+		if (Button == GEM_MB_MENU) {
+			p = FormationPivotPoint;
+			src = FormationApplicationPoint;
+		} else {
+			src = party[0]->Pos;
+		}
+		Point move;
+
 		for(i = 0; i < party.size(); i++) {
 			actor = party[i];
 			actor->ClearPath();
 			actor->ClearActions();
-			MoveToPointFormation(actor, i, src, p);
+
+			Map* map = actor->GetCurrentArea();
+			move = GetFormationPoint(map, i, src, p);
+			CreateMovement(actor, move);
 		}
 		if (DoubleClick) Center(x,y);
 

@@ -222,24 +222,23 @@ inline Control *GetControl( int wi, int ci, int ct)
 }
 
 //sets tooltip with Fx key prepended
-static inline void SetFunctionTooltip(int WindowIndex, int ControlIndex, char *txt, int Function)
+static int SetFunctionTooltip(int WindowIndex, int ControlIndex, char *txt, int Function)
 {
 	if (txt) {
 		if (txt[0]) {
 			char *txt2 = (char *) malloc(strlen(txt)+10);
-			if (Function) {
-				sprintf(txt2,"F%d - %s",Function,txt);
-			} else {
-				sprintf(txt2,"F%d - %s",ControlIndex+1,txt);
+			if (!Function) {
+				Function = ControlIndex+1;
 			}
+			sprintf(txt2,"F%d - %s",Function,txt);
 			core->FreeString(txt);
-			core->SetTooltip((ieWord) WindowIndex, (ieWord) ControlIndex, txt2);
+			int ret = core->SetTooltip((ieWord) WindowIndex, (ieWord) ControlIndex, txt2, Function);
 			free (txt2);
-			return;
+			return ret;
 		}
 		core->FreeString(txt);
 	}
-	core->SetTooltip((ieWord) WindowIndex, (ieWord) ControlIndex, "");
+	return core->SetTooltip((ieWord) WindowIndex, (ieWord) ControlIndex, "", -1);
 }
 
 static void ReadItemSounds()
@@ -1559,17 +1558,19 @@ static PyObject* GemRB_TextArea_Scroll(PyObject * /*self*/, PyObject* args)
 }
 
 PyDoc_STRVAR( GemRB_Control_SetTooltip__doc,
-"SetTooltip(WindowIndex, ControlIndex, String|Strref) => int\n\n"
-"Sets control's tooltip." );
+"SetTooltip(WindowIndex, ControlIndex, String|Strref[, Function]) => int\n\n"
+"Sets control's tooltip. The optional function number will set the function key linkage as well." );
 
 static PyObject* GemRB_Control_SetTooltip(PyObject * /*self*/, PyObject* args)
 {
 	PyObject* wi, * ci, * str;
+	PyObject* function = NULL;
 	long WindowIndex, ControlIndex, StrRef;
 	char* string;
 	int ret;
+	int Function = 0;
 
-	if (!PyArg_UnpackTuple( args, "ref", 3, 3, &wi, &ci, &str )) {
+	if (!PyArg_UnpackTuple( args, "ref", 3, 4, &wi, &ci, &str, &function)) {
 		return AttributeError( GemRB_Control_SetTooltip__doc );
 	}
 	if (!PyObject_TypeCheck( wi, &PyInt_Type ) ||
@@ -1581,12 +1582,22 @@ static PyObject* GemRB_Control_SetTooltip(PyObject * /*self*/, PyObject* args)
 
 	WindowIndex = PyInt_AsLong( wi );
 	ControlIndex = PyInt_AsLong( ci );
+	if (function) {
+		if (!PyObject_TypeCheck(function, &PyInt_Type) ) {
+			return AttributeError( GemRB_Control_SetTooltip__doc );
+		}
+		Function = PyInt_AsLong( function);
+	}
 	if (PyObject_TypeCheck( str, &PyString_Type )) {
 		string = PyString_AsString( str );
 		if (string == NULL) {
 			return RuntimeError("Null string received");
 		}
-		ret = core->SetTooltip( (ieWord) WindowIndex, (ieWord) ControlIndex, string );
+		if (Function) {
+			ret = SetFunctionTooltip( (ieWord) WindowIndex, (ieWord) ControlIndex, string, Function);
+		} else {
+			ret = core->SetTooltip( (ieWord) WindowIndex, (ieWord) ControlIndex, string );
+		}
 		if (ret == -1) {
 			return RuntimeError("Cannot set tooltip");
 		}
@@ -1596,8 +1607,13 @@ static PyObject* GemRB_Control_SetTooltip(PyObject * /*self*/, PyObject* args)
 			ret = core->SetTooltip( (ieWord) WindowIndex, (ieWord) ControlIndex, GEMRB_STRING );
 		} else {
 			char* str = core->GetString( StrRef );
-			ret = core->SetTooltip( (ieWord) WindowIndex, (ieWord) ControlIndex, str );
-			core->FreeString( str );
+
+			if (Function) {
+				ret = SetFunctionTooltip( (ieWord) WindowIndex, (ieWord) ControlIndex, str, Function );
+			} else {
+				ret = core->SetTooltip( (ieWord) WindowIndex, (ieWord) ControlIndex, str );
+				core->FreeString( str );
+			}
 		}
 		if (ret == -1) {
 			return RuntimeError("Cannot set tooltip");
@@ -2693,21 +2709,34 @@ static PyObject* GemRB_WorldMap_GetDestinationArea(PyObject * /*self*/, PyObject
 	PyDict_SetItemString(dict, "Destination", PyString_FromString (wmc->Area->AreaName) );
 	PyDict_SetItemString(dict, "Entrance", PyString_FromString (wal->DestEntryPoint) );
 	PyDict_SetItemString(dict, "Direction", PyInt_FromLong (wal->DirectionFlags) );
-	//the area the user will fall on
+	//evaluate the area the user will fall on in a random encounter
 	if (encounter && eval) {
-		int i=rand()%5;
-
-		displaymsg->DisplayConstantString(STR_AMBUSH,0xbcefbc);
+		displaymsg->DisplayConstantString(STR_AMBUSH, DMC_BG2XPGREEN);
 
 		if(wal->EncounterChance>=100) {
 			wal->EncounterChance-=100;
 		}
-		for(int j=0;j<5;j++) {
-			if (wal->EncounterAreaResRef[(i+j)%5][0]) {
-				PyDict_SetItemString(dict, "Destination", PyString_FromString (wal->EncounterAreaResRef[(i+j)%5]) );
-				PyDict_SetItemString(dict, "Entrance", PyString_FromString ("") );
-				// do we need to change Direction here?
-				break;
+
+		//bounty encounter
+		ieResRef tmpresref;
+
+		memcpy(tmpresref, wmc->Area->AreaName, sizeof(ieResRef) );
+		if (core->GetGame()->RandomEncounter(tmpresref)) {
+			PyDict_SetItemString(dict, "Destination", PyString_FromString (tmpresref) );
+			PyDict_SetItemString(dict, "Entrance", PyString_FromString ("") );
+		} else {
+			//regular random encounter, find a valid encounter area
+			int i=rand()%5;
+
+			for(int j=0;j<5;j++) {
+				const char *area = wal->EncounterAreaResRef[(i+j)%5];
+
+				if (area[0]) {
+					PyDict_SetItemString(dict, "Destination", PyString_FromString (area) );
+					PyDict_SetItemString(dict, "Entrance", PyString_FromString ("") );
+					// do we need to change Direction here?
+					break;
+				}
 			}
 		}
 	}
@@ -3614,8 +3643,9 @@ static PyObject* GemRB_VerbalConstant(PyObject * /*self*/, PyObject* args)
 
 
 PyDoc_STRVAR( GemRB_PlaySound__doc,
-"PlaySound(SoundResource, xpos, ypos, type)\n\n"
-"Plays a Sound." );
+"PlaySound(SoundResource[, xpos, ypos, type])\n"
+"PlaySound(DefSoundIndex)\n\n"
+"Plays a Sound identified by resource reference or defsound.2da index.\n" );
 
 static PyObject* GemRB_PlaySound(PyObject * /*self*/, PyObject* args)
 {
@@ -3623,12 +3653,18 @@ static PyObject* GemRB_PlaySound(PyObject * /*self*/, PyObject* args)
 	int xpos = 0;
 	int ypos = 0;
 	unsigned int flags = 1; //GEM_SND_RELATIVE
+	int index;
 
-	if (!PyArg_ParseTuple( args, "z|iii", &ResRef, &xpos, &ypos, &flags )) {
-		return AttributeError( GemRB_PlaySound__doc );
+	if (PyArg_ParseTuple( args, "i", &index) ) {
+		core->PlaySound(index);
+	} else {
+		PyErr_Clear(); //clearing the exception
+		if (!PyArg_ParseTuple( args, "z|iii", &ResRef, &xpos, &ypos, &flags )) {
+			return AttributeError( GemRB_PlaySound__doc );
+		}
+
+		core->GetAudioDrv()->Play( ResRef, xpos, ypos, flags );
 	}
-
-	core->GetAudioDrv()->Play( ResRef, xpos, ypos, flags );
 
 	Py_INCREF( Py_None );
 	return Py_None;
@@ -3950,6 +3986,7 @@ static PyObject* GemRB_SaveGame(PyObject * /*self*/, PyObject * args)
 	const char *folder;
 
 	if (!PyArg_ParseTuple( args, "Os|i", &obj, &folder, &Version )) {
+		PyErr_Clear();
 		if (!PyArg_ParseTuple( args, "i|i", &slot, &Version)) {
 			return AttributeError( GemRB_SaveGame__doc );
 		}
@@ -6161,7 +6198,7 @@ static PyObject* GemRB_GetStoreItem(PyObject * /*self*/, PyObject* args)
 	//calculate depreciation too
 	//store->DepreciationRate, mount
 
-	if (item->MaxStackAmount>1) {
+	if (item->MaxStackAmount) {
 		price *= si->Usages[0];
 	}
 	//is this correct?
@@ -6641,6 +6678,7 @@ static PyObject* GemRB_GetSpell(PyObject * /*self*/, PyObject* args)
 	PyDict_SetItemString(dict, "SpellSchool", PyInt_FromLong (spell->PrimaryType));
 	PyDict_SetItemString(dict, "SpellType", PyInt_FromLong (spell->SecondaryType));
 	PyDict_SetItemString(dict, "SpellLevel", PyInt_FromLong (spell->SpellLevel));
+	PyDict_SetItemString(dict, "Completion", PyString_FromResRef (spell->CompletionSound));
 	PyDict_SetItemString(dict, "SpellTargetType", PyInt_FromLong (spell->GetExtHeader(0)->Target));
 	gamedata->FreeSpell( spell, ResRef, false );
 	return dict;
@@ -7167,7 +7205,7 @@ int CheckRemoveItem(Actor *actor, CREItem *si, int action)
 			break;
 		}
 
-		displaymsg->DisplayString(UsedItems[i].value,0xffffff, IE_STR_SOUND);
+		displaymsg->DisplayString(UsedItems[i].value, DMC_WHITE, IE_STR_SOUND);
 		return 1;
 	}
 	return 0;
@@ -7192,7 +7230,7 @@ CREItem *TryToUnequip(Actor *actor, unsigned int Slot, unsigned int Count)
 	///fixme: make difference between cursed/unmovable
 	if (! actor->inventory.UnEquipItem( Slot, false )) {
 		// Item is currently undroppable/cursed
-		displaymsg->DisplayConstantString(STR_CANT_DROP_ITEM,0xffffff);
+		displaymsg->DisplayConstantString(STR_CANT_DROP_ITEM, DMC_WHITE);
 		return NULL;
 	}
 	si = actor->inventory.RemoveItem( Slot, Count );
@@ -7371,7 +7409,7 @@ static PyObject* GemRB_DropDraggedItem(PyObject * /*self*/, PyObject* args)
 	// can't equip item because of similar already equipped
 	if (Effect) {
 		if (item->ItemExcl & actor->inventory.GetEquipExclusion(Slot)) {
-			displaymsg->DisplayConstantString(STR_ITEMEXCL, 0xf0f0f0);
+			displaymsg->DisplayConstantString(STR_ITEMEXCL, DMC_WHITE);
 			//freeing the item before returning
 			gamedata->FreeItem( item, slotitem->ItemResRef, false );
 			return PyInt_FromLong( 0 );
@@ -7382,7 +7420,7 @@ static PyObject* GemRB_DropDraggedItem(PyObject * /*self*/, PyObject* args)
 	if ( (Slottype == SLOT_ITEM) && !(slotitem->Flags&IE_INV_ITEM_IDENTIFIED)) {
 		ITMExtHeader *eh = item->GetExtHeader(0);
 		if (eh && eh->IDReq) {
-			displaymsg->DisplayConstantString(STR_ITEMID, 0xf0f0f0);
+			displaymsg->DisplayConstantString(STR_ITEMID, DMC_WHITE);
 			gamedata->FreeItem( item, slotitem->ItemResRef, false );
 			return PyInt_FromLong( 0 );
 		}
@@ -7424,7 +7462,7 @@ static PyObject* GemRB_DropDraggedItem(PyObject * /*self*/, PyObject* args)
 		//swapping won't cure this
 		res = actor->inventory.WhyCantEquip(Slot, slotitem->Flags&IE_INV_ITEM_TWOHANDED);
 		if (res) {
-			displaymsg->DisplayConstantString(res,0xffffff);
+			displaymsg->DisplayConstantString(res, DMC_WHITE);
 			return PyInt_FromLong( 0 );
 		}
 		CREItem *tmp = TryToUnequip(actor, Slot, 0 );
@@ -7550,7 +7588,7 @@ static PyObject* GemRB_SetMapAnimation(PyObject * /*self*/, PyObject* args)
 	memset(&anim,0,sizeof(anim));
 
 	if (!PyArg_ParseTuple( args, "iis|iii", &x, &y, &ResRef, &Flags, &Cycle, &Height)) {
-		return AttributeError( GemRB_CreateItem__doc );
+		return AttributeError( GemRB_SetMapAnimation__doc );
 	}
 
 	GET_GAME();
@@ -7833,9 +7871,10 @@ static PyObject* GemRB_GamePause(PyObject * /*self*/, PyObject* args)
 		}
 		if (!quiet) {
 			if (gc->GetDialogueFlags()&DF_FREEZE_SCRIPTS) {
-				displaymsg->DisplayConstantString(STR_PAUSED,0xff0000);
+				displaymsg->DisplayConstantString(STR_PAUSED, DMC_RED);
+				gc->SetDisplayText(STR_PAUSED, 0); // time 0 = removed instantly on unpause (for pst)
 			} else {
-				displaymsg->DisplayConstantString(STR_UNPAUSED,0xff0000);
+				displaymsg->DisplayConstantString(STR_UNPAUSED, DMC_RED);
 			}
 		}
 	}
@@ -7952,6 +7991,26 @@ endofquest:
 		Py_INCREF( Py_False );
 		return Py_False;
 	}
+}
+
+PyDoc_STRVAR( GemRB_HasFeat__doc,
+"HasFeat(Slot, feat)\n\n"
+"Returns 1 if the player in Slot has the passed feat id (from ie_feats.py)." );
+
+static PyObject* GemRB_HasFeat(PyObject * /*self*/, PyObject* args)
+{
+	int PlayerSlot, featindex;
+
+	if (!PyArg_ParseTuple( args, "ii", &PlayerSlot, &featindex )) {
+		return AttributeError( GemRB_HasFeat__doc );
+	}
+	GET_GAME();
+
+	Actor *actor = game->FindPC(PlayerSlot);
+	if (!actor) {
+		return RuntimeError( "Actor not found!\n" );
+	}
+	return PyInt_FromLong( actor->HasFeat(featindex) );
 }
 
 PyDoc_STRVAR( GemRB_GetAbilityBonus__doc,
@@ -9659,16 +9718,21 @@ static PyObject* GemRB_GetCombatDetails(PyObject * /*self*/, PyObject* args)
 	ITMExtHeader *header = NULL;
 	ITMExtHeader *hittingheader = NULL;
 	int tohit=20;
-	ieDword Flags=0;
-	int DamageBonus=0, CriticalBonus=0;
-	int speed, style=0;
+	int DamageBonus=0;
+	int CriticalBonus=0;
+	int speed=0;
+	int style=0;
 
 	PyObject* dict = PyDict_New();
-	if (!actor->GetCombatDetails(tohit, leftorright, wi, header, hittingheader, Flags, DamageBonus, speed, CriticalBonus, style, NULL)) {
+	if (!actor->GetCombatDetails(tohit, leftorright, wi, header, hittingheader, DamageBonus, speed, CriticalBonus, style, NULL)) {
 		//TODO: handle error, so tohit will still be set correctly?
 	}
+	PyDict_SetItemString(dict, "Slot", PyInt_FromLong (wi.slot));
+	PyDict_SetItemString(dict, "Flags", PyInt_FromLong (wi.wflags));
+	PyDict_SetItemString(dict, "Enchantment", PyInt_FromLong (wi.enchantment));
+	PyDict_SetItemString(dict, "Range", PyInt_FromLong (wi.range));
+	PyDict_SetItemString(dict, "Proficiency", PyInt_FromLong (wi.prof));
 	PyDict_SetItemString(dict, "ToHit", PyInt_FromLong (tohit));
-	PyDict_SetItemString(dict, "Flags", PyInt_FromLong (Flags));
 	PyDict_SetItemString(dict, "DamageBonus", PyInt_FromLong (DamageBonus));
 	PyDict_SetItemString(dict, "Speed", PyInt_FromLong (speed));
 	PyDict_SetItemString(dict, "CriticalBonus", PyInt_FromLong (CriticalBonus));
@@ -10061,6 +10125,23 @@ static PyObject* GemRB_AddGameTypeHint(PyObject* /*self*/, PyObject* args)
 }
 
 
+PyDoc_STRVAR( GemRB_GetAreaInfo__doc,
+"GetAreaInfo()=>mapping\n\n"
+"Returns important values about the current area.\n");
+
+static PyObject* GemRB_GetAreaInfo(PyObject* /*self*/, PyObject* /*args*/)
+{
+	GET_GAME();
+	GET_GAMECONTROL();
+
+	PyObject* info = PyDict_New();
+	PyDict_SetItemString(info, "CurrentArea", PyString_FromResRef( game->CurrentArea ) );
+	PyDict_SetItemString(info, "PositionX", PyInt_FromLong (gc->lastMouseX));
+	PyDict_SetItemString(info, "PositionY", PyInt_FromLong (gc->lastMouseY));
+
+	return info;
+}
+
 static PyMethodDef GemRBMethods[] = {
 	METHOD(ActOnPC, METH_VARARGS),
 	METHOD(AddGameTypeHint, METH_VARARGS),
@@ -10119,6 +10200,7 @@ static PyMethodDef GemRBMethods[] = {
 	METHOD(GameSetPartySize, METH_VARARGS),
 	METHOD(GameSetProtagonistMode, METH_VARARGS),
 	METHOD(GameSetScreenFlags, METH_VARARGS),
+	METHOD(GetAreaInfo, METH_NOARGS),
 	METHOD(GetAbilityBonus, METH_VARARGS),
 	METHOD(GetCombatDetails, METH_VARARGS),
 	METHOD(GetContainer, METH_VARARGS),
@@ -10173,6 +10255,7 @@ static PyMethodDef GemRBMethods[] = {
 	METHOD(GetToken, METH_VARARGS),
 	METHOD(GetVar, METH_VARARGS),
 	METHOD(HardEndPL, METH_NOARGS),
+	METHOD(HasFeat, METH_VARARGS),
 	METHOD(HasResource, METH_VARARGS),
 	METHOD(HasSpecialItem, METH_VARARGS),
 	METHOD(HasSpecialSpell, METH_VARARGS),
@@ -10676,7 +10759,8 @@ bool GUIScript::RunFunction(const char *ModuleName, const char* FunctionName, bo
 	/* pFunc: Borrowed reference */
 	if (( !pFunc ) || ( !PyCallable_Check( pFunc ) )) {
 		if (error) {
-			printMessage("GUIScript", "Missing function:%s\n", LIGHT_RED, FunctionName);
+			printMessage("GUIScript", "Missing function: %s\n", LIGHT_RED, FunctionName);
+			textcolor(WHITE);
 		}
 		Py_DECREF(module);
 		return false;

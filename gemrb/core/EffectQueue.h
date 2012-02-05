@@ -89,6 +89,9 @@ class Scriptable;
 #define IMM_SECTYPE_DEC 0x1000
 #define IMM_RESOURCE_DEC 0x2000
 
+//pst immunities
+#define IMM_GUARDIAN  0x80000000
+
 // FIXME: Dice roll should be probably done just once, e.g. when equipping
 // the item, not each time the fx are applied
 // <avenger> the dice values are actually level limits, except in 3 hp modifier functions
@@ -264,10 +267,9 @@ public:
 	Effect *HasEffectWithResource(EffectRef &effect_reference, const ieResRef resource) const;
 	Effect *HasEffectWithSource(EffectRef &effect_reference, const ieResRef source) const;
 	void DecreaseParam1OfEffect(EffectRef &effect_reference, ieDword amount) const;
+	int DecreaseParam3OfEffect(EffectRef &effect_reference, ieDword amount, ieDword param2) const;
 	int SpecificDamageBonus(ieDword damage_type) const;
 	bool HasAnyDispellableEffect() const;
-	//transforming timing modes
-	static void TransformToDelay(ieByte &TimingMode);
 	//getting summarised effects
 	int BonusAgainstCreature(EffectRef &effect_reference, Actor *actor) const;
 	//getting weapon immunity flag
@@ -306,6 +308,7 @@ private:
 	Effect *HasOpcodeWithResource(ieDword opcode, const ieResRef resource) const;
 	Effect *HasOpcodeWithSource(ieDword opcode, const ieResRef source) const;
 	void DecreaseParam1OfEffect(ieDword opcode, ieDword amount) const;
+	int DecreaseParam3OfEffect(ieDword opcode, ieDword amount, ieDword param2) const;
 	int SpecificDamageBonus(ieDword opcode, ieDword param2) const;
 	int BonusAgainstCreature(ieDword opcode, Actor *actor) const;
 	bool WeaponImmunity(ieDword opcode, int enchantment, ieDword weapontype) const;

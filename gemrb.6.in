@@ -220,7 +220,7 @@ program found at
 Path to the data files for the game's particular CDs or any other data sources.
 
 .TP
-.BR GameOnCD =(0|1)
+.BR SlowBIFs =(0|1)
 defaults to
 .IR 0 .
 
@@ -303,11 +303,11 @@ Usually it's
 
 .TP
 .BR DoubleClickDelay =INT
-Milisecond treshold for detecting a double click. The default is 250.
+Milisecond threshold for detecting a double click. The default is 250.
 
 .TP
 .BR RepeatKeyDelay =INT
-Milisecond treshold for detecting a repeated key press. The default is 250.
+Milisecond threshold for detecting a repeated key press. The default is 250.
 
 .TP
 .BR TouchScrollAreas =(0|1)
@@ -319,6 +319,19 @@ area. Intended for devices with a touch interface. Disabled by default.
 Toggles use of software keyboard on devices that support one. It pops up when
 text input is required. Disabled by default.
 
+.TP
+.BR NumFingScroll =(2|3|4)
+Number of fingers for multitouch to trigger scrolling. The default is 2.
+
+.TP
+.BR NumFingKboard =(2|3|4)
+Number of fingers for multitouch to open up the software keyboard. The default is 3.
+The value should not be equal to
+.IR NumFingScroll " above."
+
+.TP
+.BR NumFingInfo =(2|3|4)
+Number of fingers for multitouch to emulate a special keypress (alt, tab). The default is 2.
 
 .\"###################################################
 .SH Development parameters:

@@ -24,7 +24,7 @@
 
 import GemRB
 from GUIDefines import *
-from ie_stats import IE_MAXHITPOINTS, IE_STATE_ID, IE_HITPOINTS, STATE_DEAD
+from ie_stats import IE_STATE_ID, STATE_DEAD
 from ie_modal import *
 from ie_action import *
 import GUICommon
@@ -255,8 +255,7 @@ def GroupControls ():
 		Button.SetVarAssoc ("Formation", i)
 		Button.SetEvent (IE_GUI_BUTTON_ON_PRESS, GUICommon.SelectFormation)
 		Button.SetEvent (IE_GUI_BUTTON_ON_RIGHT_PRESS, SetupFormation)
-		str = GemRB.GetString (4935)
-		Button.SetTooltip ("F%d - %s"%(8+i,str) )
+		Button.SetTooltip (4935, 8+i)
 	return
 
 def OpenActionsWindowControls (Window):
@@ -625,7 +624,8 @@ def SpellPressed ():
 		#if spell has no target, return
 		#otherwise continue with casting
 		Target = GemRB.SetupQuickSpell (pc, slot, Spell, Type, 1)
-		if Target == 5:
+		#sabotage the immediate casting of self targeting spells
+		if Target == 5 or Target == 7:
 			Type = -1
 			GemRB.GameControlSetTargetMode (TARGET_MODE_NONE)
 
@@ -749,6 +749,12 @@ def UpdatePortraitWindow ():
 		pic = GemRB.GetPlayerPortrait (portid+1, 1)
 		if Inventory and pc != portid+1:
 			pic = None
+
+		if pic and GemRB.GetPlayerStat(portid+1, IE_STATE_ID) & STATE_DEAD:
+			import GUISTORE
+			# dead pcs are hidden in all stores but temples
+			if GUISTORE.StoreWindow and not GUISTORE.StoreHealWindow:
+				pic = None
 
 		if not pic:
 			Button.SetFlags (IE_GUI_BUTTON_NO_IMAGE, OP_SET)

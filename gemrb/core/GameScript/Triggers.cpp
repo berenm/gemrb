@@ -325,16 +325,20 @@ int GameScript::IsGabber(Scriptable* Sender, Trigger* parameters)
 	return 0;
 }
 
+//returns true if the trap or infopoint is active
 int GameScript::IsActive(Scriptable* Sender, Trigger* parameters)
 {
 	Scriptable* scr = GetActorFromObject( Sender, parameters->objectParameter );
-	if (!scr) {
+	if (!scr || (scr->Type!=ST_PROXIMITY && scr->Type!=ST_TRIGGER && scr->Type!=ST_TRAVEL) ) {
 		return 0;
 	}
-	if (scr->GetInternalFlag()&IF_ACTIVE) {
-		return 1;
+
+	InfoPoint *ip = (InfoPoint *) scr;
+
+	if (ip->Flags&(TRAP_DEACTIVATED|INFO_DOOR) ) {
+		return 0;
 	}
-	return 0;
+	return 1;
 }
 
 int GameScript::InTrap(Scriptable* Sender, Trigger* parameters)
@@ -1459,7 +1463,7 @@ int GameScript::InLine(Scriptable* Sender, Trigger* parameters)
 	Scriptable* scr2 = map->GetActor( parameters->string0Parameter, 0 );
 	if (!scr2) {
 		scr2 = GetActorObject(map->GetTileMap(), parameters->string0Parameter);
-	}  
+	}
 	if (!scr2) {
 		return 0;
 	}
@@ -1547,24 +1551,6 @@ int GameScript::TriggerTrigger(Scriptable* Sender, Trigger* parameters)
 
 int GameScript::WalkedToTrigger(Scriptable* Sender, Trigger* parameters)
 {
-	/*Actor *target = Sender->GetCurrentArea()->GetActorByGlobalID(Sender->LastTrigger);
-	if (!target) {
-		return 0;
-	}
-	if (PersonalDistance(target, Sender) > 3*MAX_OPERATING_DISTANCE ) {
-		return 0;
-	}
-	//now objects suicide themselves if they are empty objects
-	//so checking an empty object is easier
-	if (parameters->objectParameter == NULL) {
-		Sender->AddTrigger (&Sender->LastTrigger);
-		return 1;
-	}
-	if (MatchActor(Sender, Sender->LastTrigger, parameters->objectParameter)) {
-		Sender->AddTrigger (&Sender->LastTrigger);
-		return 1;
-	}
-	return 0;*/
 	return Sender->MatchTriggerWithObject(trigger_walkedtotrigger, parameters->objectParameter);
 }
 
@@ -1815,14 +1801,14 @@ int GameScript::HPLT(Scriptable* Sender, Trigger* parameters)
 }
 
 //these triggers work on the current damage (not the last damage)
-/* they are identical to HPLost
+//actually, they use lastdamage
 int GameScript::DamageTaken(Scriptable* Sender, Trigger* parameters)
 {
 	if (Sender->Type!=ST_ACTOR) {
 		return 0;
 	}
 	Actor* actor = ( Actor* ) Sender;
-	int damage = actor->GetStat(IE_MAXHITPOINTS)-actor->GetBase(IE_HITPOINTS);
+	int damage = actor->LastDamage;
 	if (damage==(int) parameters->int0Parameter) {
 		return 1;
 	}
@@ -1835,7 +1821,7 @@ int GameScript::DamageTakenGT(Scriptable* Sender, Trigger* parameters)
 		return 0;
 	}
 	Actor* actor = ( Actor* ) Sender;
-	int damage = actor->GetStat(IE_MAXHITPOINTS)-actor->GetBase(IE_HITPOINTS);
+	int damage = actor->LastDamage;
 	if (damage>(int) parameters->int0Parameter) {
 		return 1;
 	}
@@ -1848,13 +1834,12 @@ int GameScript::DamageTakenLT(Scriptable* Sender, Trigger* parameters)
 		return 0;
 	}
 	Actor* actor = ( Actor* ) Sender;
-	int damage = actor->GetStat(IE_MAXHITPOINTS)-actor->GetBase(IE_HITPOINTS);
+	int damage = actor->LastDamage;
 	if (damage<(int) parameters->int0Parameter) {
 		return 1;
 	}
 	return 0;
 }
-*/
 
 int GameScript::HPLost(Scriptable* Sender, Trigger* parameters)
 {
@@ -3235,52 +3220,16 @@ int GameScript::IsFacingObject(Scriptable* Sender, Trigger* parameters)
 int GameScript::AttackedBy(Scriptable* Sender, Trigger* parameters)
 {
 	return Sender->MatchTriggerWithObject(trigger_attackedby, parameters->objectParameter, parameters->int0Parameter);
-	/*if (Sender->Type!=ST_ACTOR) {
-		return 0;
-	}
-	Actor *scr = (Actor *) Sender;
-	Targets *tgts = GetAllObjects(Sender->GetCurrentArea(), Sender, parameters->objectParameter, GA_NO_DEAD);
-	int ret = 0;
-	int AStyle = parameters->int0Parameter;
-	//iterate through targets to get the actor
-	if (tgts) {
-		targetlist::iterator m;
-		const targettype *tt = tgts->GetFirstTarget(m, ST_ACTOR);
-		while (tt) {
-			Actor *actor = (Actor *) tt->actor;
-			//if (actor->LastTarget == scr->GetID()) {
-			if (scr->LastAttacker == actor->GetGlobalID()) {
-				if (!AStyle || (AStyle==actor->GetAttackStyle()) ) {
-					scr->AddTrigger(&scr->LastAttacker);
-					ret = 1;
-					break;
-				}
-			}
-			tt = tgts->GetNextTarget(m, ST_ACTOR);
-		}
-	}
-	delete tgts;
-	return ret;*/
 }
 
 int GameScript::TookDamage(Scriptable* Sender, Trigger* /*parameters*/)
 {
 	return Sender->MatchTrigger(trigger_tookdamage);
-	/*if (Sender->Type!=ST_ACTOR) {
-		return 0;
-	}
-	Actor* actor = ( Actor* ) Sender;
-	//zero damage doesn't count?
-	if (actor->LastHitter && actor->LastDamage) {
-		Sender->AddTrigger(&actor->LastHitter);
-		return 1;
-	}
-	return 0;*/
 }
 
 int GameScript::HitBy(Scriptable* Sender, Trigger* parameters)
 {
-	return Sender->MatchTriggerWithObject(trigger_attackedby, parameters->objectParameter, parameters->int0Parameter);
+	return Sender->MatchTriggerWithObject(trigger_hitby, parameters->objectParameter, parameters->int0Parameter);
 }
 
 int GameScript::Heard(Scriptable* Sender, Trigger* parameters)
@@ -3350,37 +3299,11 @@ int GameScript::ReceivedOrder(Scriptable* Sender, Trigger* parameters)
 int GameScript::Joins(Scriptable* Sender, Trigger* parameters)
 {
 	return Sender->MatchTriggerWithObject(trigger_joins, parameters->objectParameter);
-	/*if(Sender->Type!=ST_ACTOR) {
-		return 0;
-	}
-	Actor * actor = ( Actor* ) Sender;
-	//this trigger is sent only to PCs in a party
-	if(!actor->PCStats) {
-		return 0;
-	}
-	if (MatchActor(Sender, actor->PCStats->LastJoined, parameters->objectParameter)) {
-		Sender->AddTrigger(&actor->PCStats->LastJoined);
-		return 1;
-	}
-	return 0;*/
 }
 
 int GameScript::Leaves(Scriptable* Sender, Trigger* parameters)
 {
 	return Sender->MatchTriggerWithObject(trigger_leaves, parameters->objectParameter);
-	/*if(Sender->Type!=ST_ACTOR) {
-		return 0;
-	}
-	Actor * actor = ( Actor* ) Sender;
-	//this trigger is sent only to PCs in a party
-	if(!actor->PCStats) {
-		return 0;
-	}
-	if (MatchActor(Sender, actor->PCStats->LastLeft, parameters->objectParameter)) {
-		Sender->AddTrigger(&actor->PCStats->LastLeft);
-		return 1;
-	}
-	return 0;*/
 }
 
 int GameScript::FallenPaladin(Scriptable* Sender, Trigger* /*parameters*/)
@@ -3952,6 +3875,21 @@ int GameScript::Unusable(Scriptable* Sender, Trigger* parameters)
 	return ret;
 }
 
+//returns true if the immunity flag is set
+//(attacker has to make a successful spell save to hit the target)
+int GameScript::IsInGuardianMantle(Scriptable* Sender, Trigger* parameters)
+{
+	Scriptable *tar = GetActorFromObject( Sender, parameters->objectParameter );
+	if (!tar || tar->Type != ST_ACTOR) {
+		return 0;
+	}
+	Actor* actor = ( Actor* ) tar;
+	if (actor->GetStat(IE_IMMUNITY)&IMM_GUARDIAN) {
+		return 1;
+	}
+	return 0;
+}
+
 int GameScript::HasBounceEffects(Scriptable* Sender, Trigger* parameters)
 {
 	Scriptable *tar = GetActorFromObject( Sender, parameters->objectParameter );
@@ -4011,64 +3949,21 @@ int GameScript::SystemVariable_Trigger(Scriptable* Sender, Trigger* parameters)
 int GameScript::SpellCast(Scriptable* Sender, Trigger* parameters)
 {
 	return Sender->MatchTriggerWithObject(trigger_spellcast, parameters->objectParameter, parameters->int0Parameter);
-	/*if(parameters->int0Parameter) {
-		unsigned int param = 2000+parameters->int0Parameter%1000;
-		if (param!=Sender->LastSpellSeen) {
-			return 0;
-		}
-	}
-	if(MatchActor(Sender, Sender->LastCasterSeen, parameters->objectParameter)) {
-		Sender->AddTrigger(&Sender->LastCasterSeen);
-		return 1;
-	}
-	return 0;*/
 }
 
 int GameScript::SpellCastPriest(Scriptable* Sender, Trigger* parameters)
 {
 	return Sender->MatchTriggerWithObject(trigger_spellcastpriest, parameters->objectParameter, parameters->int0Parameter);
-	/*if(parameters->int0Parameter) {
-		unsigned int param = 1000+parameters->int0Parameter%1000;
-		if (param!=Sender->LastSpellSeen) {
-			return 0;
-		}
-	}
-	if(MatchActor(Sender, Sender->LastCasterSeen, parameters->objectParameter)) {
-		Sender->AddTrigger(&Sender->LastCasterSeen);
-		return 1;
-	}
-	return 0;*/
 }
 
 int GameScript::SpellCastInnate(Scriptable* Sender, Trigger* parameters)
 {
 	return Sender->MatchTriggerWithObject(trigger_spellcastinnate, parameters->objectParameter, parameters->int0Parameter);
-	/*if(parameters->int0Parameter) {
-		unsigned int param = 3000+parameters->int0Parameter%1000;
-		if (param!=Sender->LastSpellSeen) {
-			return 0;
-		}
-	}
-	if(MatchActor(Sender, Sender->LastCasterSeen, parameters->objectParameter)) {
-		Sender->AddTrigger(&Sender->LastCasterSeen);
-		return 1;
-	}
-	return 0;*/
 }
 
 int GameScript::SpellCastOnMe(Scriptable* Sender, Trigger* parameters)
 {
 	return Sender->MatchTriggerWithObject(trigger_spellcastonme, parameters->objectParameter, parameters->int0Parameter);
-	/*if(parameters->int0Parameter) {
-		if ((ieDword) parameters->int0Parameter!=Sender->LastSpellOnMe) {
-			return 0;
-		}
-	}
-	if(MatchActor(Sender, Sender->LastCasterOnMe, parameters->objectParameter)) {
-		Sender->AddTrigger(&Sender->LastCasterOnMe);
-		return 1;
-	}
-	return 0;*/
 }
 
 int GameScript::CalendarDay(Scriptable* /*Sender*/, Trigger* parameters)

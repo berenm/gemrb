@@ -203,32 +203,33 @@ def SetupProfsWindow (pc, type, window, callback, level1=[0,0,0], level2=[1,1,1]
 		Class = GemRB.GetPlayerStat (pc, IE_CLASS)
 	ClassName = CommonTables.Classes.FindValue (5, Class)
 	ClassName = CommonTables.Classes.GetRowName (ClassName)
-	if ClassName == "SORCERER":
-		ClassName = "MAGE"
-	ClassNameSave = ClassName
 
-	#find the class with the greatest prof potential
-	FastestProf = 0
-	ProfsRate = 100
-	IsMulti = GUICommon.IsMultiClassed (pc, 1)
-	if IsMulti[0] > 1:
-		for i in range (1, IsMulti[0]+1):
-			TmpRate = ProfsTable.GetValue (IsMulti[i]-1, 1)
-			if TmpRate < ProfsRate:
-				ProfsRate = TmpRate
-				FastestProf = i-1
-	else:
-		ProfsRate = ProfsTable.GetValue (Class-1, 1)
+	# profs.2da has entries for everyone, so no need to muck around
+	ProfsRate = ProfsTable.GetValue (ClassName, "RATE")
 
 	#figure out how many prof points we have
 	if sum (level1) == 0: #character is being generated (either chargen or dual)
 		ProfsPointsLeft = ProfsTable.GetValue (ClassName, "FIRST_LEVEL")
 
-	#we need these 2 number to floor before subtracting
-	ProfsPointsLeft += level2[FastestProf]/ProfsRate - level1[FastestProf]/ProfsRate
+	ProfIndex = 0
+	IsMulti = GUICommon.IsMultiClassed (pc, 1)
+	if IsMulti[0] > 1:
+		# sum the levels, since the rate is for the combined multiclass
+		ProfsPointsLeft += (sum(level2) - sum(level1))/ProfsRate
+	else:
+		if GUICommon.IsDualSwap (pc):
+			ProfIndex = 1
+
+		#we need these 2 number to floor before subtracting
+		ProfsPointsLeft += level2[ProfIndex]/ProfsRate - level1[ProfIndex]/ProfsRate
 
 	#setup prof vars for passing between functions
 	ProfsTable = GemRB.LoadTable ("weapprof")
+
+	# weapprof has no sorcerer entry
+	if ClassName == "SORCERER":
+		ClassName = "MAGE"
+	ClassNameSave = ClassName
 
 	# if we have the classweapons table, use it
 	if ClassWeaponsTable:
@@ -420,14 +421,14 @@ def ProfsLeftPress():
 		return
 	if GUICommon.GameIsIWD1() or GUICommon.GameIsBG1():
 		ProfMaxTable = GemRB.LoadTable ("profsmax")
-		MaxProf = ProfMaxTable.GetValue(ClassNameSave, "OTHER_LEVELS")
+		if ProfsType == LUPROFS_TYPE_CHARGEN:
+			MaxProf = ProfMaxTable.GetValue(ClassNameSave, "FIRST_LEVEL")
+		else:
+			MaxProf = ProfMaxTable.GetValue(ClassNameSave, "OTHER_LEVELS")
 	else:
 		MaxProf = ProfsTable.GetValue(Pos+ProfsTableOffset, ProfsColumn)
 	if MaxProf>5:
 		MaxProf = 5
-	# FIXME: use profsmax.2da (in all games? could be problematic for weapon styles)
-	#if (MaxProf>2) and GUICommon.GameIsBG1():
-	#	MaxProf = 2
 
 	ActPoint = GemRB.GetVar("Prof "+str(Pos) )
 	if ActPoint >= MaxProf:

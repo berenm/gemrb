@@ -32,6 +32,8 @@
 #include "Interface.h"
 #include "Video.h"
 
+#include "ie_cursors.h"
+
 Window::Window(unsigned short WindowID, unsigned short XPos,
 	unsigned short YPos, unsigned short Width, unsigned short Height)
 {
@@ -51,6 +53,7 @@ Window::Window(unsigned short WindowID, unsigned short XPos,
 	DefaultControl[0] = -1;
 	DefaultControl[1] = -1;
 	ScrollControl = -1;
+	FunctionBar = false;
 }
 
 Window::~Window()
@@ -149,6 +152,21 @@ void Window::SetFrame()
 		Flags|=WF_FRAME;
 	}
 	Invalidate();
+}
+
+Control* Window::GetFunctionControl(int x)
+{
+	if (!FunctionBar) {
+		return NULL;
+	}
+
+	std::vector< Control*>::const_iterator m;
+
+	for (m = Controls.begin(); m != Controls.end(); m++) {
+		Control *ctrl = *m;
+		if ( ctrl->GetFunctionNumber() == x ) return ctrl;
+	}
+	return NULL;
 }
 
 /** Returns the Control at X,Y Coordinates */

@@ -81,6 +81,8 @@ class DialogHandler;
 #define TARGET_TYPE_ALL      0 //(TARGET_TYPE_ALLY | TARGET_TYPE_ENEMY | TARGET_TYPE_NEUTRAL)
 */
 
+static const unsigned long tp_steps[8]={3,2,1,0,1,2,3,4};
+
 /**
  * @class GameControl
  * Widget displaying areas, where most of the game 'happens'.
@@ -96,6 +98,8 @@ public:
 public:
 	/** Draws the Control on the Output Display */
 	void Draw(unsigned short x, unsigned short y);
+	/** Draws the target reticle for Actor movement. */
+	void DrawTargetReticle(Point p, int size, bool animate);
 	/** Sets multiple quicksaves flag*/
 	//static void MultipleQuickSaves(int arg);
 	void SetTracker(Actor *actor, ieDword dist);
@@ -105,9 +109,12 @@ private:
 	ieDword distance;  //tracking distance
 	std::vector< Actor*> highlighted;
 	bool DrawSelectionRect;
+	bool FormationRotation;
 	bool MouseIsDown;
 	bool DoubleClick;
 	Region SelectionRect;
+	Point FormationPivotPoint;
+	Point FormationApplicationPoint;
 	short StartX, StartY;
 	// following variables used for touch scroll areas
 	bool touchScrollAreasEnabled; // true, if scroll areas enabled
@@ -121,6 +128,7 @@ public:
 
 	// allow targetting allies, enemies and/or neutrals (bitmask)
 	int target_types;
+	unsigned short lastMouseX, lastMouseY;
 private:
 	// currently selected targetting type, such as talk, attack, cast, ...
 	// private to enforce proper cursor changes
@@ -129,7 +137,6 @@ private:
 	short moveX, moveY;
 	int numScrollCursor;
 	bool scrolling;
-	unsigned short lastMouseX, lastMouseY;
 	int DebugFlags;
 	Point pfs;
 	PathNode* drawPath;
@@ -227,7 +234,7 @@ public:
 	bool HandleActiveRegion(InfoPoint *trap, Actor *actor, Point &p);
 
 	Point GetFormationOffset(ieDword formation, ieDword pos);
-	void MoveToPointFormation(Actor *actor, unsigned int pos, Point src, Point p);
+	Point GetFormationPoint(Map *map, unsigned int pos, Point src, Point p);
 	/** calls MoveToPoint or RunToPoint */
 	void CreateMovement(Actor *actor, const Point &p);
 	/** Displays a string over an object */
