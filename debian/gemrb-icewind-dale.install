@@ -1,0 +1,13 @@
+usr/games/icewind-dale
+debian/icewind-dale.cfg etc/gemrb/
+usr/share/man/man6/icewind-dale.6.gz
+debian/icewind-dale.desktop usr/share/applications/
+usr/share/icons/hicolor/scalable/apps/icewind-dale.svg
+usr/share/pixmaps/icewind-dale.png
+
+usr/games/icewind-dale-how
+debian/icewind-dale-how.cfg etc/gemrb/
+usr/share/man/man6/icewind-dale-how.6.gz
+debian/icewind-dale-how.desktop usr/share/applications/
+usr/share/icons/hicolor/scalable/apps/icewind-dale-how.svg
+usr/share/pixmaps/icewind-dale-how.png

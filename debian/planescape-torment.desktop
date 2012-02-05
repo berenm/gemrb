@@ -1,0 +1,10 @@
+[Desktop Entry]
+Version=1.0
+Name=Planescape: Torment - GemRB
+GenericName=Planescape: Torment
+Comment=Planescape: Torment game running with GemRB
+Type=Application
+Icon=planescape-torment
+Terminal=true
+Exec=planescape-torment
+Categories=Game;RolePlaying;Emulator;

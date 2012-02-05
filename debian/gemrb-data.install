@@ -1,0 +1,4 @@
+usr/share/gemrb/minimal/
+usr/share/gemrb/override/shared/
+usr/share/gemrb/GUIScripts/*.py
+usr/share/gemrb/GUIScripts/test/

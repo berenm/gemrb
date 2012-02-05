@@ -1,0 +1,5 @@
+gemrb (0.6.5-1) unstable; urgency=low
+
+  * Initial release (Closes: #477376)
+
+ -- Beren Minor <beren.minor+debian@gmail.com>  Sat, 20 Aug 2011 18:21:10 +0200

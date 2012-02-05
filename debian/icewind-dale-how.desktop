@@ -1,0 +1,10 @@
+[Desktop Entry]
+Version=1.0
+Name=Icewind Dale: Heart of Winter - GemRB
+GenericName=Icewind Dale: Heart of Winter
+Comment=Icewind Dale: Heart of Winter game running with GemRB
+Type=Application
+Icon=icewind-dale-how
+Terminal=true
+Exec=icewind-dale-how
+Categories=Game;RolePlaying;Emulator;

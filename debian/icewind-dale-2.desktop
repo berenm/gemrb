@@ -1,0 +1,10 @@
+[Desktop Entry]
+Version=1.0
+Name=Icewind Dale 2 - GemRB
+GenericName=Icewind Dale 2
+Comment=Icewind Dale 2 game running with GemRB
+Type=Application
+Icon=icewind-dale-2
+Terminal=true
+Exec=icewind-dale-2
+Categories=Game;RolePlaying;Emulator;

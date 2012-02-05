@@ -1,0 +1,24 @@
+#!/usr/bin/make -f
+# -*- makefile -*-
+# Sample debian/rules that uses debhelper.
+# This file was originally written by Joey Hess and Craig Small.
+# As a special exception, when this file is copied by dh-make into a
+# dh-make output file, you may use that output file without restriction.
+# This special exception was added by Craig Small in version 0.37 of dh-make.
+
+# Uncomment this to turn on verbose mode.
+#export DH_VERBOSE=1
+
+%:
+	dh $@
+
+override_dh_auto_install:
+	dh_auto_install
+	install -d debian/tmp/usr/games/
+	for game in baldurs-gate baldurs-gate-2 icewind-dale icewind-dale-how icewind-dale-2 planescape-torment; \
+	do \
+	    ln -s gemrb      debian/tmp/usr/games/$${game}; \
+	    ln -s gemrb.6.gz debian/tmp/usr/share/man/man6/$${game}.6.gz; \
+	    ln -s gemrb.svg  debian/tmp/usr/share/icons/hicolor/scalable/apps/$${game}.svg; \
+	    ln -s gemrb.png  debian/tmp/usr/share/pixmaps/$${game}.png; \
+	done
