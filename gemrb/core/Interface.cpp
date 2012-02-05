@@ -43,6 +43,7 @@
 #include "EffectMgr.h"
 #include "EffectQueue.h"
 #include "Factory.h"
+#include "FontManager.h"
 #include "Game.h"
 #include "GameData.h"
 #include "GlobalTimer.h"
@@ -187,7 +188,6 @@ Interface::Interface(int iargc, char* iargv[])
 #else
 	CaseSensitive = false;
 #endif
-	SlowBIFs = false;
 	SkipIntroVideos = false;
 	DrawFPS = false;
 	TouchScrollAreas = false;
@@ -198,6 +198,7 @@ Interface::Interface(int iargc, char* iargv[])
 	NumFingScroll = 2;
 	TooltipDelay = 100;
 	IgnoreOriginalINI = 0;
+	Bpp = 32;
 	FullScreen = 0;
 	GUIScriptsPath[0] = 0;
 	GamePath[0] = 0;
@@ -207,6 +208,7 @@ Interface::Interface(int iargc, char* iargv[])
 	CachePath[0] = 0;
 	GemRBOverridePath[0] = 0;
 	GameName[0] = 0;
+	CustomFontPath[0] = 0;
 
 	strncpy( GameOverridePath, "override", sizeof(GameOverridePath) );
 	strncpy( GameSoundsPath, "sounds", sizeof(GameSoundsPath) );
@@ -826,7 +828,7 @@ bool Interface::ReadSpecialSpells()
 	return result;
 }
 
-int Interface::GetSpecialSpell(ieResRef resref)
+int Interface::GetSpecialSpell(const ieResRef resref)
 {
 	for (int i=0;i<SpecialSpellsCount;i++) {
 		if (!strnicmp(resref, SpecialSpells[i].resref, sizeof(ieResRef))) {
@@ -837,20 +839,25 @@ int Interface::GetSpecialSpell(ieResRef resref)
 }
 
 //disable spells based on some circumstances
-int Interface::CheckSpecialSpell(ieResRef resref, Actor *actor)
+int Interface::CheckSpecialSpell(const ieResRef resref, Actor *actor)
 {
 	int sp = GetSpecialSpell(resref);
 
 	//the identify spell is always disabled on the menu
 	if (sp&SP_IDENTIFY) {
-		return 1;
+		return SP_IDENTIFY;
 	}
 
 	//if actor is silenced, and spell cannot be cast in silence, disable it
 	if (actor->GetStat(IE_STATE_ID) & STATE_SILENCED ) {
 		if (!(sp&SP_SILENCE)) {
-			return 1;
+			return SP_SILENCE;
 		}
+	}
+
+	// disable spells causing surges to be cast while in a surge (prevents nesting)
+	if (sp&SP_SURGE) {
+		return SP_SURGE;
 	}
 
 	return 0;
@@ -1327,34 +1334,60 @@ int Interface::LoadSprites()
 		printStatus( "ERROR", LIGHT_RED );
 		print( "Cannot find fonts.2da.\nTermination in Progress...\n" );
 		return GEM_ERROR;
-	} else {
-		PluginHolder<AnimationMgr> bamint(IE_BAM_CLASS_ID);
-		if (!bamint) {
-			printStatus( "ERROR", LIGHT_RED );
-			print( "No BAM Importer Available.\nTermination in Progress...\n" );
-			return GEM_ERROR;
+	}
+
+	int count = tab->GetRowCount();
+	for (int row = 0; row < count; row++) {
+		const char* ResRef = tab->QueryField(row, 0);
+		int needpalette = atoi(tab->QueryField(row, 1));
+		int first_char = atoi(tab->QueryField(row, 2));
+		int last_char = atoi(tab->QueryField(row, 3));
+
+		const char* font_name;
+		unsigned short font_size = 0;
+		FontStyle font_style = NORMAL;
+
+		if (CustomFontPath[0]) {
+			font_name = tab->QueryField( row, 4 );// map a font alternative to the BAM ResRef since CHUs contain hardcoded refrences.
+			font_size = atoi( tab->QueryField( row, 5 ) );// not available in BAM fonts.
+			font_style = (FontStyle)atoi( tab->QueryField( row, 6 ) );// not available in BAM fonts.
+		}else{
+			font_name = ResRef;
 		}
-		DataStream* str = NULL;
 
-		int count = tab->GetRowCount();
-		for (int i = 0; i < count; i++) {
-			const char* ResRef = tab->QueryField( i, 0 );
-			int needpalette = atoi( tab->QueryField( i, 1 ) );
-			int first_char = atoi( tab->QueryField( i, 2 ) );
-			str = gamedata->GetResource( ResRef, IE_BAM_CLASS_ID );
-			if (!bamint->Open(str)) {
-				continue;
+		// Do search for existing font here
+		Font* fnt = NULL;
+		for (size_t fntIdx = 0; fntIdx < fonts.size(); fntIdx++) {
+			if (stricmp(fonts[fntIdx]->name, font_name) == 0
+					&& fonts[fntIdx]->GetCharacterCount() == (last_char - first_char + 1)
+					&& fonts[fntIdx]->ptSize == font_size
+					&& fonts[fntIdx]->style == font_style) {
+				fnt = fonts[fntIdx];
+				fnt->AddResRef(ResRef);
+				break;
 			}
-			Font* fnt = bamint->GetFont();
-			if (!fnt) {
-				continue;
-			}
-			strnlwrcpy( fnt->ResRef, ResRef, 8 );
-			if (needpalette) {
+		}
 
+		if (fnt) {
+			print("Found existing font for %s", ResRef);
+			printStatus("OK", LIGHT_GREEN);
+			// what about palette etc?
+			continue;
+		} else {
+			Palette* pal = NULL;
+			if (needpalette || (CustomFontPath[0] && strnicmp( font_name, ResRef, sizeof(ieResRef)-1) != 0 )) {//non-BAM fonts
 				Color fore = {0xff, 0xff, 0xff, 0};
 				Color back = {0x00, 0x00, 0x00, 0};
-				if (!strnicmp( TooltipFont, ResRef, 8) ) {
+				if (CustomFontPath[0]) {
+					const char* colorString = tab->QueryField( i, 7 );
+					unsigned long combinedColor = strtoul(colorString, NULL, 16);
+					ieByte* color = (ieByte*)&combinedColor;
+					fore.r = *color++;
+					fore.g = *color++;
+					fore.b = *color++;
+					fore.a = *color++;
+				}
+				if (!strnicmp(TooltipFont, ResRef, sizeof(ieResRef)-1)) {
 					if (TooltipColor.a==0xff) {
 						fore = TooltipColor;
 					} else {
@@ -1362,36 +1395,48 @@ int Interface::LoadSprites()
 						back = TooltipColor;
 					}
 				}
-				Palette* pal = CreatePalette( fore, back );
+				pal = CreatePalette(fore, back);
 				pal->CreateShadedAlphaChannel();
-				fnt->SetPalette(pal);
-				gamedata->FreePalette( pal );
 			}
-			fnt->SetFirstChar( (ieByte) first_char );
-			fonts.push_back( fnt );
+			ResourceHolder<FontManager> fntMgr(font_name);
+			if (fntMgr) fnt = fntMgr->GetFont(first_char, last_char, font_size, font_style, pal);
+			gamedata->FreePalette(pal);
 		}
 
-		if (fonts.size() == 0) {
-			printMessage( "Core", "No default font loaded! ", WHITE );
-			printStatus( "ERROR", LIGHT_RED );
-			return GEM_ERROR;
+		if (!fnt) {
+			print("Unable to load font resource:%s ", ResRef);
+			printStatus("WARNING", YELLOW);
+			continue;
 		}
-		if (GetFont( ButtonFont ) == NULL) {
-			printMessage("Core", "ButtonFont not loaded: %s ", WHITE,
-				ButtonFont);
-			printStatus( "WARNING", YELLOW );
-		}
-		if (GetFont( MovieFont ) == NULL) {
-			printMessage("Core", "MovieFont not loaded: %s ", WHITE,
-				MovieFont);
-			printStatus( "WARNING", YELLOW );
-		}
-		if (GetFont( TooltipFont ) == NULL) {
-			printMessage("Core", "TooltipFont not loaded: %s ", WHITE,
-				TooltipFont);
-			printStatus( "WARNING", YELLOW );
-		}
+
+		fnt->AddResRef(ResRef);
+		strnlwrcpy( fnt->name, font_name, sizeof(fnt->name)-1);
+
+		fonts.push_back(fnt);
 	}
+
+	if (fonts.size() == 0) {
+		printMessage( "Core", "No default font loaded! ", WHITE );
+		printStatus( "ERROR", LIGHT_RED );
+		return GEM_ERROR;
+	}
+
+	if (GetFont( ButtonFont ) == NULL) {
+		printMessage("Core", "ButtonFont not loaded: %s ", WHITE,
+					 ButtonFont);
+		printStatus( "WARNING", YELLOW );
+	}
+	if (GetFont( MovieFont ) == NULL) {
+		printMessage("Core", "MovieFont not loaded: %s ", WHITE,
+					 MovieFont);
+		printStatus( "WARNING", YELLOW );
+	}
+	if (GetFont( TooltipFont ) == NULL) {
+		printMessage("Core", "TooltipFont not loaded: %s ", WHITE,
+					 TooltipFont);
+		printStatus( "WARNING", YELLOW );
+	}
+
 	printMessage( "Core", "Fonts Loaded...", WHITE );
 	printStatus( "OK", LIGHT_GREEN );
 
@@ -1577,6 +1622,9 @@ int Interface::Init()
 		gamedata->AddSource(path, "GemRB Override", PLUGIN_RESOURCE_CACHEDDIRECTORY, RM_REPLACE_SAME_SOURCE);
 	}
 
+	// Purposely add the font directory last since we will only ever need it at engine load time.
+	if (CustomFontPath[0]) gamedata->AddSource(CustomFontPath, "CustomFonts", PLUGIN_RESOURCE_DIRECTORY);
+
 	printMessage( "Core", "Reading Game Options...\n", WHITE );
 	if (!LoadGemRBINI()) {
 		print( "Cannot Load INI\nTermination in Progress...\n" );
@@ -1748,10 +1796,11 @@ int Interface::Init()
 		printStatus( "NOT FOUND", YELLOW );
 	}
 
-	if (HasFeature( GF_RESDATA_INI )) {
+	int resdata = HasFeature( GF_RESDATA_INI );
+	if (resdata || HasFeature(GF_SOUNDS_INI) ) {
 		printMessage( "Core", "Loading resource data File...", WHITE );
 		INIresdata = PluginHolder<DataFileMgr>(IE_INI_CLASS_ID);
-		DataStream* ds = gamedata->GetResource("resdata", IE_INI_CLASS_ID);
+		DataStream* ds = gamedata->GetResource(resdata? "resdata":"sounds", IE_INI_CLASS_ID);
 		if (!INIresdata->Open(ds)) {
 			printStatus( "ERROR", LIGHT_RED );
 		} else {
@@ -2134,6 +2183,10 @@ bool Interface::LoadConfig(void)
 	if (s) {
 		strcpy( UserDir, s );
 		strcat( UserDir, "/."PACKAGE"/" );
+#if TARGET_OS_IPHONE
+		//we are in both a sandbox and a bundle
+		strcat( UserDir, "/"PACKAGE".app/");
+#endif
 	} else {
 		strcpy( UserDir, "./" );
 	}
@@ -2282,7 +2335,6 @@ bool Interface::LoadConfig(const char* filename)
 		CONFIG_INT("FullScreen", FullScreen = );
 		CONFIG_INT("GUIEnhancements", GUIEnhancements = );
 		CONFIG_INT("TouchScrollAreas", TouchScrollAreas = );
-		CONFIG_INT("SlowBIFs", SlowBIFs = );
 		CONFIG_INT("Height", Height = );
 		CONFIG_INT("KeepCache", KeepCache = );
 		CONFIG_INT("MultipleQuickSaves", MultipleQuickSaves = );
@@ -2303,6 +2355,7 @@ bool Interface::LoadConfig(const char* filename)
 			strncpy(var, value, sizeof(var))
 		CONFIG_STRING("GameCharactersPath", GameCharactersPath);
 		CONFIG_STRING("GameDataPath", GameDataPath);
+		CONFIG_STRING("CustomFontPath", CustomFontPath);
 		CONFIG_STRING("GameName", GameName);
 		CONFIG_STRING("GameOverridePath", GameOverridePath);
 		CONFIG_STRING("GamePortraitsPath", GamePortraitsPath);
@@ -2525,6 +2578,7 @@ static const char *game_flags[GF_COUNT+1]={
 		"ForceAreaScript",    //59GF_FORCE_AREA_SCRIPT
 		"AreaOverride",       //60GF_AREA_OVERRIDE
 		"NoNewVariables",     //61GF_NO_NEW_VARIABLES
+		"HasSoundsIni",       //62GF_SOUNDS_INI
 		NULL                  //for our own safety, this marks the end of the pole
 };
 
@@ -2714,7 +2768,7 @@ Color* Interface::GetPalette(unsigned index, int colors, Color *pal) const
 Font* Interface::GetFont(const char *ResRef) const
 {
 	for (unsigned int i = 0; i < fonts.size(); i++) {
-		if (strnicmp( fonts[i]->ResRef, ResRef, 8 ) == 0) {
+		if (fonts[i]->MatchesResRef(ResRef)) {
 			return fonts[i];
 		}
 	}
@@ -3182,9 +3236,14 @@ int Interface::SetControlStatus(unsigned short WindowIndex,
 	if (Status&IE_GUI_CONTROL_FOCUSED) {
 		evntmgr->SetFocused( win, ctrl);
 	}
-	if (ctrl->ControlType != ((Status >> 24) & 0xff) ) {
+
+	//check if the status parameter was intended to use with this control
+	//Focus will sadly break this at the moment, because it is common for all control types
+	int check = (Status >> 24) & 0xff;
+	if ( (check!=0x7f) && (ctrl->ControlType != check) ) {
 		return -2;
 	}
+
 	switch (ctrl->ControlType) {
 		case IE_GUI_BUTTON:
 			//Button
@@ -3519,7 +3578,7 @@ void Interface::PopupConsole()
 /** Draws the Console */
 void Interface::DrawConsole()
 {
-	console->Draw( 0, 0 );
+	console->Draw( 0, (Height * -1) + console->Height);
 }
 
 /** Get the Sound Manager */
@@ -3874,7 +3933,7 @@ void Interface::SetCutSceneMode(bool active)
 bool Interface::InCutSceneMode() const
 {
 	GameControl *gc = GetGameControl();
-	if (!gc || (gc->GetDialogueFlags()&DF_IN_DIALOG) || (gc->GetScreenFlags()&SF_DISABLEMOUSE) ) {
+	if (!gc || (gc->GetDialogueFlags()&DF_IN_DIALOG) || (gc->GetScreenFlags()&(SF_DISABLEMOUSE|SF_CUTSCENE))) {
 		return true;
 	}
 	return false;
@@ -5289,7 +5348,7 @@ int Interface::GetReputationMod(int column) const
 // -1 if pause is already active
 // 0 if pause was not allowed
 // 1 if autopause happened
-int Interface::Autopause(ieDword flag)
+int Interface::Autopause(ieDword flag, Scriptable* target)
 {
 	GameControl *gc = GetGameControl();
 	if (!gc) {
@@ -5302,11 +5361,22 @@ int Interface::Autopause(ieDword flag)
 		return -1;
 	}
 	ieDword autopause_flags = 0;
+	ieDword autopause_center = 0;
 
 	vars->Lookup("Auto Pause State", autopause_flags);
+	vars->Lookup("Auto Pause Center", autopause_center);
 	if ((autopause_flags & (1<<flag))) {
 		displaymsg->DisplayConstantString(STR_AP_UNUSABLE+flag, DMC_RED);
 		gc->SetDialogueFlags(DF_FREEZE_SCRIPTS, BM_OR);
+		if (autopause_center && target) {
+			Video *video = core->GetVideoDriver();
+			Point screenPos = target->Pos;
+			video->ConvertToScreen(screenPos.x, screenPos.y);
+			gc->Center(screenPos.x, screenPos.y);
+			if (target->Type == ST_ACTOR && ((Actor *)target)->GetStat(IE_EA) < EA_GOODCUTOFF) {
+				core->GetGame()->SelectActor((Actor *)target, true, SELECT_REPLACE);
+			}
+		}
 		return 1;
 	}
 	return 0;

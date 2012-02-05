@@ -32,6 +32,13 @@
 
 #include <vector>
 
+enum FontStyle {
+	NORMAL = 0x00,
+	BOLD = 0x01,
+	ITALIC = 0x02,
+	UNDERLINE = 0x04
+};
+
 class Palette;
 class Sprite2D;
 
@@ -59,30 +66,48 @@ struct StringList {
  */
 
 class GEM_EXPORT Font {
+public:
+	struct GlyphInfo {
+		short xPos, yPos; // tracks glyph adjustment
+		Region size;
+	};
 private:
-	int count;
+	int glyphCount;
+
+	ieResRef* resRefs;
+	int numResRefs;
+
 	Palette* palette;
-	Sprite2D* sprBuffer;
-	unsigned char FirstChar;
+	Sprite2D* sprBuffer;//A sprite with all printable ASCII characters printed horizontally acending.
 
-	short xPos[256];
-	short yPos[256];
+	/** Sets ASCII code of the first character in the font.
+	 * (it allows remapping numeric fonts from \000 to '0') */
+	ieWord FirstChar;
+	ieWord LastChar;
 
-	// For the temporary bitmap
-	unsigned char* tmpPixels;
-	unsigned int width, height;
+	std::vector<GlyphInfo> glyphInfo;
+	GlyphInfo whiteSpace[3];//an empty region for non existing chars + space + tab
 public:
-	/** ResRef of the Font image */
-	ieResRef ResRef;
+	char name[20];
+	FontStyle style;	  // for informational purposes only
+	unsigned short ptSize;// for informational purposes only
+
 	int maxHeight;
-	Region size[256];
 public:
-	Font(int w, int h, Palette* palette);
+	Font(Sprite2D* glyphs[], ieWord firstChar, ieWord lastChar, Palette* pal);
 	~Font(void);
-	void AddChar(unsigned char* spr, int w, int h, short xPos, short yPos);
-	/** Call this after adding all characters */
-	void FinalizeSprite(bool cK, int index);
 
+	//allow reading but not setting glyphs
+	const GlyphInfo& getInfo (ieWord chr) const;
+	int GetCharacterCount(){ return glyphCount; };
+
+	bool AddResRef(const ieResRef resref);
+	bool MatchesResRef(const ieResRef resref);
+
+	Palette* GetPalette() const;
+	void SetPalette(Palette* pal);
+
+	// Printing methods
 	void Print(Region cliprgn, Region rgn, const unsigned char* string,
 		Palette* color, unsigned char Alignment, bool anchor = false,
 		Font* initials = NULL, Sprite2D* cursor = NULL,
@@ -96,14 +121,9 @@ public:
 		Font* initials = NULL, Sprite2D* cursor = NULL,
 		unsigned int curpos = 0, bool NoColor = false) const;
 
-	Palette* GetPalette() const;
-	void SetPalette(Palette* pal);
 	/** Returns width of the string rendered in this font in pixels */
 	int CalcStringWidth(const char* string, bool NoColor = false) const;
 	void SetupString(char* string, unsigned int width, bool NoColor = false, Font *initials = NULL, bool enablecap = false) const;
-	/** Sets ASCII code of the first character in the font.
-	 * (it allows remapping numeric fonts from \000 to '0') */
-	void SetFirstChar(unsigned char first);
 
 private:
 	int PrintInitial(int x, int y, const Region &rgn, unsigned char currChar) const;

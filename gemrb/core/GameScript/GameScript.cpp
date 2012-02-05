@@ -149,9 +149,9 @@ static const TriggerLink triggernames[] = {
 	{"happiness", GameScript::Happiness, 0},
 	{"happinessgt", GameScript::HappinessGT, 0},
 	{"happinesslt", GameScript::HappinessLT, 0},
-	{"harmlessclosed", GameScript::Closed, 0}, //pst, not sure
-	{"harmlessentered", GameScript::HarmlessEntered, 0}, //???
-	{"harmlessopened", GameScript::Opened, 0}, //pst, not sure
+	{"harmlessclosed", GameScript::HarmlessClosed, 0}, //pst
+	{"harmlessentered", GameScript::HarmlessEntered, 0}, //pst
+	{"harmlessopened", GameScript::HarmlessOpened, 0}, //pst
 	{"hasbounceeffects", GameScript::HasBounceEffects, 0},
 	{"hasimmunityeffects", GameScript::HasImmunityEffects, 0},
 	{"hasinnateability", GameScript::HaveSpell, 0}, //these must be the same
@@ -388,6 +388,7 @@ static const TriggerLink triggernames[] = {
 	{"unselectablevariablegt", GameScript::UnselectableVariableGT, 0},
 	{"unselectablevariablelt", GameScript::UnselectableVariableLT, 0},
 	{"unusable",GameScript::Unusable, 0},
+	{"usedexit",GameScript::UsedExit, 0}, //pst unhardcoded trigger for protagonist teleport
 	{"vacant",GameScript::Vacant, 0},
 	{"walkedtotrigger", GameScript::WalkedToTrigger, 0},
 	{"wasindialog", GameScript::WasInDialog, 0},
@@ -1269,6 +1270,7 @@ static void CleanupIEScript()
 	actionsTable.release();
 	objectsTable.release();
 	overrideActionsTable.release();
+	overrideTriggersTable.release();
 	if (ObjectIDSTableNames)
 		free(ObjectIDSTableNames);
 	ObjectIDSTableNames = NULL;
@@ -1304,6 +1306,7 @@ void InitializeIEScript()
 	int aT = core->LoadSymbol( "action" );
 	int oT = core->LoadSymbol( "object" );
 	int gaT = core->LoadSymbol( "gemact" );
+	int gtT = core->LoadSymbol( "gemtrig" );
 	AutoTable objNameTable("script");
 	if (tT < 0 || aT < 0 || oT < 0 || !objNameTable) {
 		error("GameScript", "A critical scripting file is missing!\n");
@@ -1312,6 +1315,7 @@ void InitializeIEScript()
 	actionsTable = core->GetSymbol( aT );
 	objectsTable = core->GetSymbol( oT );
 	overrideActionsTable = core->GetSymbol( gaT );
+	overrideTriggersTable = core->GetSymbol( gtT );
 	if (!triggersTable || !actionsTable || !objectsTable || !objNameTable) {
 		error("GameScript", "A critical scripting file is damaged!\n");
 	}
@@ -1484,6 +1488,33 @@ void InitializeIEScript()
 			}
 			actions[i] = poi->Function;
 			actionflags[i] = poi->Flags;
+		}
+	}
+
+	if (overrideTriggersTable) {
+		/*
+		 * we add/replace some actions from gemtrig.ids
+		 * right now you can't print or generate these actions!
+		 */
+		j = overrideTriggersTable->GetSize();
+		while (j--) {
+			i = overrideTriggersTable->GetValueIndex( j );
+			if (i >= MAX_TRIGGERS) {
+				printMessage("GameScript", "trigger %d (%s) is too high, ignoring\n", RED,
+					i, overrideTriggersTable->GetStringIndex( j ) );
+				continue;
+			}
+			const TriggerLink *poi = FindTrigger( overrideTriggersTable->GetStringIndex( j ));
+			if (!poi) {
+				continue;
+			}
+			if (triggers[i]) {
+				printMessage("GameScript", "%s overrides existing trigger ", WHITE,
+					overrideTriggersTable->GetStringIndex( j ) );
+				printFunction( triggersTable, triggersTable->FindValue(overrideTriggersTable->GetValueIndex( j )));
+			}
+			triggers[i] = poi->Function;
+			triggerflags[i] = poi->Flags;
 		}
 	}
 
@@ -1796,6 +1827,11 @@ static Trigger* ReadTrigger(DataStream* stream)
 	tR->objectParameter = DecodeObject( line );
 	stream->ReadLine( line, 1024 );
 	free( line );
+	//discard invalid triggers, so they won't cause a crash
+	if (tR->triggerID>=MAX_TRIGGERS) {
+		delete tR;
+		return NULL;
+	}
 	return tR;
 }
 

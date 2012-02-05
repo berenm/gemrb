@@ -19,7 +19,14 @@
  */
 #import <SDL.h>
 #import "CocoaWrapper.h"
-#if TARGET_OS_MAC >= 1
+
+// SDL 1.3 has its own App Delegate, but curently all it does is what this delegate category is doing
+// SDL is nice enough to check if a delegate exists prior to assigning its own.
+
+/*
+Mac OS X wrapper
+*/
+
 @interface CocoaWrapper (SDLTerminate)
 - (NSApplicationTerminateReply)applicationShouldTerminate:(NSApplication *)sender;
 @end
@@ -36,4 +43,3 @@
     return NSTerminateCancel;
 }
 @end
-#endif

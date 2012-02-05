@@ -121,9 +121,6 @@ def SetupMageWindow ():
 		Button = Window.GetControl (56 + i)
 		Button.SetEvent (IE_GUI_BUTTON_ON_PRESS, RefreshMageLevel)
 		Button.SetFlags (IE_GUI_BUTTON_RADIOBUTTON, OP_OR)
-
-	for i in range (9):
-		Button = Window.GetControl (56 + i)
 		Button.SetVarAssoc ("MageSpellLevel", i)
 
 	# Setup memorized spells buttons
@@ -622,7 +619,8 @@ def ContingencyOk ():
 	else:
 		GemRB.ApplyEffect (pc, "CastSpellOnCondition", 0, GemRB.GetVar ("ContCond"), Spell1, Spell2, Spell3, Source)
 	#set the innate
-	GemRB.LearnSpell (pc, Source+"d", LS_MEMO)
+	if GemRB.LearnSpell (pc, Source+"d", LS_MEMO):
+		print "EEEEK! Failed to learn sequencer/contingency!\n\n"
 	OtherWindow.Unload()
 	return
 

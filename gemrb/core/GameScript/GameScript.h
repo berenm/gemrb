@@ -588,7 +588,7 @@ struct IDSLink {
 	IDSFunction Function;
 };
 
-#define MAX_TRIGGERS			0xFF
+#define MAX_TRIGGERS			0x100
 #define MAX_ACTIONS			400
 #define MAX_OBJECTS			128
 #define AI_SCRIPT_LEVEL 4             //the script level of special ai scripts
@@ -739,7 +739,9 @@ public: //Script Functions
 	static int Happiness(Scriptable* Sender, Trigger* parameters);
 	static int HappinessGT(Scriptable* Sender, Trigger* parameters);
 	static int HappinessLT(Scriptable* Sender, Trigger* parameters);
+	static int HarmlessClosed(Scriptable* Sender, Trigger* parameters);
 	static int HarmlessEntered(Scriptable* Sender, Trigger* parameters);
+	static int HarmlessOpened(Scriptable* Sender, Trigger* parameters);
 	static int HasBounceEffects(Scriptable* Sender, Trigger* parameters);
 	static int HasImmunityEffects(Scriptable* Sender, Trigger* parameters);
 	static int HasInnateAbility(Scriptable* Sender, Trigger* parameters);
@@ -948,6 +950,7 @@ public: //Script Functions
 	static int UnselectableVariableGT(Scriptable* Sender, Trigger* parameters);
 	static int UnselectableVariableLT(Scriptable* Sender, Trigger* parameters);
 	static int Unusable(Scriptable* Sender, Trigger* parameters);
+	static int UsedExit(Scriptable* Sender, Trigger* parameters);
 	static int Vacant(Scriptable* Sender, Trigger* parameters);
 	static int WalkedToTrigger(Scriptable* Sender, Trigger* parameters);
 	static int WasInDialog(Scriptable* Sender, Trigger* parameters);

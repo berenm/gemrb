@@ -335,7 +335,7 @@ void Scriptable::TickScripting()
 		actorState = ((Actor *)this)->Modified[IE_STATE_ID];
 
 	// Dead actors only get one chance to run a new script.
-	if ((actorState & STATE_DEAD) && !(InternalFlags & IF_JUSTDIED))
+	if ( (InternalFlags& (IF_REALLYDIED|IF_JUSTDIED))==IF_REALLYDIED)
 		return;
 
 	ScriptTicks++;
@@ -437,7 +437,8 @@ void Scriptable::AddAction(Action* aC)
 
 	// attempt to handle 'instant' actions, from instant.ids, which run immediately
 	// when added if the action queue is empty, even on actors which are Held/etc
-	if (!CurrentAction && !GetNextAction()) {
+	// FIXME: area check hack until fuzzie fixes scripts here
+	if (!CurrentAction && !GetNextAction() && area) {
 		if (actionflags[aC->actionID] & AF_INSTANT) {
 			CurrentAction = aC;
 			GameScript::ExecuteAction( this, CurrentAction );
@@ -689,7 +690,7 @@ void Scriptable::CreateProjectile(const ieResRef SpellResRef, ieDword tgt, int l
 
 	//PST has a weird effect, called Enoll Eva's duplication
 	//it creates every projectile of the affected actor twice
-	int duplicate = 1;
+	int projectileCount = 1;
 	if (Type == ST_ACTOR) {
 		caster = (Actor *) this;
 		caster->CureInvisibility();
@@ -697,10 +698,10 @@ void Scriptable::CreateProjectile(const ieResRef SpellResRef, ieDword tgt, int l
 			caster->CureSanctuary();
 		}
 
-		//FIXME: 1 duplicate is no duplicate, right?
-		duplicate = caster->wildSurgeMods.num_castings;
-		if (!duplicate) {
-			duplicate = 1;
+		// check if a wild surge ordered us to replicate the projectile
+		projectileCount = caster->wildSurgeMods.num_castings;
+		if (!projectileCount) {
+			projectileCount = 1;
 		}
 	}
 
@@ -708,11 +709,11 @@ void Scriptable::CreateProjectile(const ieResRef SpellResRef, ieDword tgt, int l
 		if (caster->GetStat(IE_STATE_ID)&STATE_EE_DUPL) {
 			//seriously, wild surges and EE in the same game?
 			//anyway, it would be too many duplications
-			duplicate = 2;
+			projectileCount = 2;
 		}
 	}
 
-	while(duplicate --) {
+	while(projectileCount --) {
 		Projectile *pro = NULL;
 		// jump through hoops to skip applying selftargetting spells to the caster
 		// if we'll be changing the target
@@ -857,14 +858,14 @@ void Scriptable::CreateProjectile(const ieResRef SpellResRef, ieDword tgt, int l
 			}
 		}
 		char* spell = core->GetString(spl->SpellName);
-		if (stricmp(spell, "")) {
+		if (stricmp(spell, "") && Type == ST_ACTOR) {
 			char* msg = core->GetString(displaymsg->GetStringReference(STR_ACTION_CAST), 0);
 			char *tmp;
 			if (target) {
 				tmp = (char *) malloc(strlen(msg)+strlen(spell)+strlen(target->GetName(-1))+5);
 				sprintf(tmp, "%s %s : %s", msg, spell, target->GetName(-1));
 			} else {
-				tmp = (char *) malloc(strlen(msg)+strlen(spell)+4);
+				tmp = (char *) malloc(strlen(spell)+strlen(GetName(-1))+4);
 				sprintf(tmp, "%s : %s", spell, GetName(-1));
 			}
 			displaymsg->DisplayStringName(tmp, DMC_WHITE, this);
@@ -873,7 +874,10 @@ void Scriptable::CreateProjectile(const ieResRef SpellResRef, ieDword tgt, int l
 		}
 		core->FreeString(spell);
 	}
-	core->Autopause(AP_SPELLCAST);
+	// only trigger the autopause when in combat or buffing gets very annoying
+	if (core->GetGame()->CombatCounter) {
+		core->Autopause(AP_SPELLCAST, this);
+	}
 
 	gamedata->FreeSpell(spl, SpellResRef, false);
 }
@@ -910,6 +914,11 @@ void Scriptable::CastSpellPointEnd(int level)
 	}
 
 	CreateProjectile(SpellResRef, 0, level, false);
+	// no need to distinguish between them, since the spell IDs are type dependant and there is no overlap
+	ieDword spellID = ResolveSpellNumber(SpellResRef);
+	AddTrigger(TriggerEntry(trigger_spellcast, GetGlobalID(), spellID));
+	AddTrigger(TriggerEntry(trigger_spellcastpriest, GetGlobalID(), spellID));
+	AddTrigger(TriggerEntry(trigger_spellcastinnate, GetGlobalID(), spellID));
 
 	SpellHeader = -1;
 	SpellResRef[0] = 0;
@@ -951,6 +960,18 @@ void Scriptable::CastSpellEnd(int level)
 
 	//if the projectile doesn't need to follow the target, then use the target position
 	CreateProjectile(SpellResRef, LastTarget, level, GetSpellDistance(SpellResRef, this)==0xffffffff);
+	// no need to distinguish between them, since the spell IDs are type dependant and there is no overlap
+	ieDword spellID = ResolveSpellNumber(SpellResRef);
+	AddTrigger(TriggerEntry(trigger_spellcast, GetGlobalID(), spellID));
+	AddTrigger(TriggerEntry(trigger_spellcastpriest, GetGlobalID(), spellID));
+	AddTrigger(TriggerEntry(trigger_spellcastinnate, GetGlobalID(), spellID));
+	// TODO: maybe it should be set on effect application, since the data uses it with dispel magic and true sight a lot
+	Actor *target = area->GetActorByGlobalID(LastTarget);
+	if (target) {
+		target->AddTrigger(TriggerEntry(trigger_spellcastonme, GetGlobalID(), spellID));
+		target->LastSpellOnMe = spellID;
+	}
+
 	SpellHeader = -1;
 	SpellResRef[0] = 0;
 	LastTarget = 0;
@@ -1082,8 +1103,7 @@ int Scriptable::CastSpell( Scriptable* target, bool deplete, bool instant, bool 
 		}
 	}
 
-	// FIXME: fishy
-	if (!target) target = this;
+	assert(target);
 
 	if(!nointerrupt && !CanCast(SpellResRef)) {
 		SpellResRef[0] = 0;
@@ -1145,7 +1165,7 @@ int Scriptable::SpellCast(bool instant)
 		//cfb
 		EffectQueue *fxqueue = spl->GetEffectBlock(this, this->Pos, -1, level);
 		fxqueue->SetOwner(actor);
-		if (!actor->Modified[IE_AVATARREMOVAL]) {
+		if (!(actor->Modified[IE_AVATARREMOVAL] || instant)) {
 			spl->AddCastingGlow(fxqueue, duration, actor->Modified[IE_SEX]);
 		}
 		fxqueue->AddAllEffects(actor, actor->Pos);
@@ -1156,6 +1176,7 @@ int Scriptable::SpellCast(bool instant)
 			// we have to remove it manually
 			actor->fxqueue.RemoveAllEffectsWithParam(fx_force_surge_modifier_ref, 1);
 		}
+		actor->ResetCommentTime();
 	}
 
 	gamedata->FreeSpell(spl, SpellResRef, false);
@@ -1192,15 +1213,13 @@ int Scriptable::CheckWildSurge()
 			int check = roll + caster->GetCasterLevel(spl->SpellType) + caster->Modified[IE_SURGEMOD];
 			if (caster->Modified[IE_CHAOSSHIELD]) {
 				//avert the surge and decrease the chaos shield counter
-				//FIXME: if 0 is also good, use that
-				check = 100;
+				check = 0;
 				caster->fxqueue.DecreaseParam1OfEffect(fx_chaosshield_ref,1);
 				displaymsg->DisplayConstantStringName(STR_CHAOSSHIELD,DMC_LIGHTGREY,caster);
 			}
 
-			// hundred or more means a normal cast
-			//FIXME: what happens if check is 0
-			if (check && (check < 100) ) {
+			// hundred or more means a normal cast; same for negative values (for absurd antisurge modifiers)
+			if ((check > 0) && (check < 100) ) {
 				// display feedback: Wild Surge: bla bla
 				char *s1 = core->GetString(displaymsg->GetStringReference(STR_WILDSURGE), 0);
 				char *s2 = core->GetString(core->SurgeSpells[check-1].message, 0);
@@ -1470,7 +1489,7 @@ void Selectable::DrawCircle(const Region &vp)
 		//if it is too fast, increase the 6 to 7
 		unsigned long step;
 		step = GetTickCount();
-		step = tp_steps [(step >> 6) & 7];
+		step = tp_steps [(step >> 7) & 7]*2;
 		mix.a = overColor.a;
 		mix.r = (overColor.r*step+selectedColor.r*(8-step))/8;
 		mix.g = (overColor.g*step+selectedColor.g*(8-step))/8;
@@ -1824,6 +1843,24 @@ void AdjustPositionTowards(Point &Pos, ieDword time_diff, unsigned int walk_spee
 			( ( ( Pos.y - ( ( desty * 12 ) + 6 ) ) * ( time_diff ) ) / walk_speed );
 }
 
+unsigned char Movable::GetNextFace()
+{
+	//slow turning
+	if (timeStartStep==core->GetGame()->Ticks) {
+		return Orientation;
+	}
+	if (Orientation != NewOrientation) {
+		if ( ( (NewOrientation-Orientation) & (MAX_ORIENT-1) ) <= MAX_ORIENT/2) {
+			Orientation++;
+		} else {
+			Orientation--;
+		}
+		Orientation = Orientation&(MAX_ORIENT-1);
+	}
+
+	return Orientation;
+}
+
 // returns whether we made all pending steps (so, false if we must be called again this tick)
 // we can't just do them all here because the caller might have to update searchmap etc
 bool Movable::DoStep(unsigned int walk_speed, ieDword time)
@@ -1846,7 +1883,7 @@ bool Movable::DoStep(unsigned int walk_speed, ieDword time)
 		step = step->Next;
 		timeStartStep = timeStartStep + walk_speed;
 	}
-	SetOrientation (step->orient, false);
+	SetOrientation (step->orient, true);
 	StanceID = IE_ANI_WALK;
 	if ((Type == ST_ACTOR) && (InternalFlags & IF_RUNNING)) {
 		StanceID = IE_ANI_RUN;

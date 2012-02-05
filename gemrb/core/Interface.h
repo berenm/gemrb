@@ -141,6 +141,7 @@ struct SpellDescType {
 };
 #define SP_IDENTIFY  1      //any spell that cannot be cast from the menu
 #define SP_SILENCE   2      //any spell that can be cast in silence
+#define SP_SURGE     4      //any spell that cannot be cast during a wild surge
 
 struct SurgeSpell {
 	ieResRef spell;
@@ -654,7 +655,7 @@ public:
 	/** saves the .are and .sto files to the destination folder */
 	int CompressSave(const char *folder);
 	/** receives an autopause reason, returns 1 if pause was triggered by this call, -1 if it was already triggered */
-	int Autopause(ieDword reason);
+	int Autopause(ieDword flag, Scriptable *target);
 	/** registers engine opcodes */
 	void RegisterOpcodes(int count, const EffectDesc *opcodes);
 	/** reads a list of resrefs into an array, returns array size */
@@ -689,8 +690,8 @@ public:
 	void StripLine(char * string, size_t size);
 	/** Returns the DeathVarFormat of the day */
 	static const char *GetDeathVarFormat();
-	int CheckSpecialSpell(ieResRef resref, Actor *actor);
-	int GetSpecialSpell(ieResRef resref);
+	int CheckSpecialSpell(const ieResRef resref, Actor *actor);
+	int GetSpecialSpell(const ieResRef resref);
 	int GetSpecialSpellsCount() { return SpecialSpellsCount; }
 	SpellDescType *GetSpecialSpells() { return SpecialSpells; }
 private:
@@ -740,6 +741,7 @@ public:
 	char UserDir[_MAX_PATH];
 	int argc;
 	char **argv;
+	char CustomFontPath[_MAX_PATH];
 	char GameName[_MAX_PATH];
 	char GameType[_MAX_PATH];
 	char GemRBPath[_MAX_PATH];
@@ -755,10 +757,10 @@ public:
 	unsigned int TooltipDelay;
 	int IgnoreOriginalINI;
 	unsigned int FogOfWar;
-	bool CaseSensitive, SlowBIFs, SkipIntroVideos, DrawFPS;
+	bool CaseSensitive, SkipIntroVideos, DrawFPS;
 	bool TouchScrollAreas, UseSoftKeyboard;
 	unsigned short NumFingScroll, NumFingKboard, NumFingInfo;
-	bool GUIEnhancements;
+	int GUIEnhancements;
 	bool KeepCache;
 	bool MultipleQuickSaves;
 	Variables *plugin_flags;

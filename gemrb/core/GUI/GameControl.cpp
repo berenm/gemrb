@@ -129,7 +129,7 @@ GameControl::GameControl(void)
 	numScrollCursor = 0;
 	DebugFlags = 0;
 	AIUpdateCounter = 1;
-	EnableRunning = true; //make this a game flag if you wish
+	AlwaysRun = false; //make this a game flag if you wish
 	ieDword tmp=0;
 
 	ResetTargetMode();
@@ -143,6 +143,7 @@ GameControl::GameControl(void)
 		scrollAreasWidth = 5;
 	}
 
+	tmp=0;
 	core->GetDictionary()->Lookup("Center",tmp);
 	if (tmp) {
 		ScreenFlags=SF_ALWAYSCENTER|SF_CENTERONACTOR;
@@ -252,14 +253,15 @@ void GameControl::Center(unsigned short x, unsigned short y)
 void GameControl::CreateMovement(Actor *actor, const Point &p)
 {
 	char Tmp[256];
+	static bool CanRun = true;
 
 	Action *action = NULL;
-	if (DoubleClick && EnableRunning) {
+	if (CanRun && (DoubleClick || AlwaysRun)) {
 		sprintf( Tmp, "RunToPoint([%d.%d])", p.x, p.y );
 		action = GenerateAction( Tmp );
 		//if it didn't work don't insist
 		if (!action)
-			EnableRunning = false;
+			CanRun = false;
 	}
 	if (!action) {
 		sprintf( Tmp, "MoveToPoint([%d.%d])", p.x, p.y );
@@ -411,6 +413,13 @@ void GameControl::Draw(unsigned short x, unsigned short y)
 	}
 
 	Region viewport = video->GetViewport();
+	// handle keeping the actor in the spotlight, but only when unpaused
+	if ((ScreenFlags & SF_ALWAYSCENTER) && update_scripts) {
+		Actor *star = core->GetFirstSelectedActor();
+		moveX = star->Pos.x - viewport.x - viewport.w/2;
+		moveY = star->Pos.y - viewport.y - viewport.h/2;
+	}
+
 	if (moveX || moveY) {
 		viewport.x += moveX;
 		viewport.y += moveY;
@@ -1400,7 +1409,7 @@ void GameControl::OnMouseOver(unsigned short x, unsigned short y)
 				nextCursor = IE_CURSOR_TALK;
 				//don't let the pc to talk to frozen/stoned creatures
 				ieDword state = lastActor->GetStat(IE_STATE_ID);
-				if (state & STATE_CANTMOVE) {
+				if (state & (STATE_CANTMOVE^STATE_SLEEP)) {
 					nextCursor |= IE_CURSOR_GRAY;
 				}
 			} else {
@@ -1417,7 +1426,7 @@ void GameControl::OnMouseOver(unsigned short x, unsigned short y)
 			} else {
 				//don't let the pc to talk to frozen/stoned creatures
 				ieDword state = lastActor->GetStat(IE_STATE_ID);
-				if (state & STATE_CANTMOVE) {
+				if (state & (STATE_CANTMOVE^STATE_SLEEP)) {
 					nextCursor |= IE_CURSOR_GRAY;
 				}
 			}
@@ -1702,7 +1711,7 @@ void GameControl::TryToCast(Actor *source, Actor *tgt)
 
 	// cannot target spells on invisible or sanctuaried creatures
 	// invisible actors are invisible, so this is usually impossible by itself, but improved invisibility changes that
-	if ((tgt->GetStat(IE_STATE_ID)&STATE_INVISIBLE) || tgt->HasSpellState(SS_SANCTUARY)) {
+	if (source != tgt && ((tgt->GetStat(IE_STATE_ID)&STATE_INVISIBLE) || tgt->HasSpellState(SS_SANCTUARY))) {
 		displaymsg->DisplayConstantStringName(STR_NOSEE_NOCAST, DMC_RED, source);
 		ResetTargetMode();
 		return;
@@ -2016,10 +2025,13 @@ void GameControl::OnMouseUp(unsigned short x, unsigned short y, unsigned short B
 	if (!FormationRotation) actor = area->GetActor( p, GA_DEFAULT /*| GA_NO_DEAD */| GA_NO_HIDDEN | target_types);
 	if (Button == GEM_MB_MENU) {
 		if (actor) {
-			//from GSUtils
-			DisplayStringCore(actor, VB_SELECT+core->Roll(1,3,-1), DS_CONST|DS_CONSOLE);
+			//play select sound on right click on actor
+			actor->SelectActor();
 			return;
 		}
+		// reset the action bar
+		core->GetGUIScriptEngine()->RunFunction("GUICommonWindows", "EmptyControls");
+		core->SetEventFlag(EF_ACTION);
 		core->GetDictionary()->SetAt( "MenuX", x );
 		core->GetDictionary()->SetAt( "MenuY", y );
 		core->GetGUIScriptEngine()->RunFunction( "GUICommon", "OpenFloatMenuWindow" );
@@ -2152,7 +2164,8 @@ void GameControl::OnMouseUp(unsigned short x, unsigned short y, unsigned short B
 
 	//we got an actor past this point
 	if (target_mode == TARGET_MODE_NONE) {
-		DisplayStringCore(actor, VB_SELECT+core->Roll(1,3,-1), DS_CONST|DS_CONSOLE);
+		//play select sound
+		actor->SelectActor();
 	}
 
 	PerformActionOn(actor);
@@ -2729,7 +2742,7 @@ void GameControl::ChangeMap(Actor *pc, bool forced)
 	//center on first selected actor
 	Video *video = core->GetVideoDriver();
 	Region vp = video->GetViewport();
-	if (ScreenFlags&SF_CENTERONACTOR) {
+	if (pc && (ScreenFlags&SF_CENTERONACTOR)) {
 		core->timer->SetMoveViewPort( pc->Pos.x, pc->Pos.y, 0, true );
 		video->MoveViewportTo( pc->Pos.x-vp.w/2, pc->Pos.y-vp.h/2 );
 		ScreenFlags&=~SF_CENTERONACTOR;
@@ -2925,3 +2938,7 @@ void GameControl::SetDisplayText(ieStrRef text, unsigned int time)
 	SetDisplayText(core->GetString(displaymsg->GetStringReference(text), 0), time);
 }
 
+void GameControl::ToggleAlwaysRun()
+{
+	AlwaysRun = !AlwaysRun;
+}

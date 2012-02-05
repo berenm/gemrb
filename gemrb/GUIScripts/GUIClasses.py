@@ -50,6 +50,7 @@ class GSymbol:
 class GWindow:
   __metaclass__ = metaIDWrapper
   methods = {
+    'GetPos': _GemRB.Window_GetPos,
     'SetSize': _GemRB.Window_SetSize,
     'SetFrame': _GemRB.Window_SetFrame,
     'SetPicture': _GemRB.Window_SetPicture,
@@ -57,7 +58,6 @@ class GWindow:
     'HasControl': _GemRB.Window_HasControl,
     'DeleteControl': _GemRB.Window_DeleteControl,
     'SetupEquipmentIcons': _GemRB.Window_SetupEquipmentIcons,
-    'SetupSpellIcons': _GemRB.Window_SetupSpellIcons,
     'SetupControls': _GemRB.Window_SetupControls,
     'SetVisible': _GemRB.Window_SetVisible,
     'ShowModal': _GemRB.Window_ShowModal,
@@ -94,6 +94,7 @@ class GWindow:
 class GControl:
   __metaclass__ = metaControl
   methods = {
+    'GetPos': _GemRB.Control_GetPos,
     'SetVarAssoc': _GemRB.Control_SetVarAssoc,
     'SetPos': _GemRB.Control_SetPos,
     'SetSize': _GemRB.Control_SetSize,
@@ -137,7 +138,8 @@ class GTextArea(GControl):
 class GTextEdit(GControl):
   __metaclass__ = metaControl
   methods = {
-    'SetBufferLength': _GemRB.TextEdit_SetBufferLength
+    'SetBufferLength': _GemRB.TextEdit_SetBufferLength,
+    'SetBackground': _GemRB.TextEdit_SetBackground
   }
   def ConvertEdit(self, ScrollBarID):
     newID = _GemRB.TextEdit_ConvertEdit(self.WinID, self.ID, ScrollBarID)

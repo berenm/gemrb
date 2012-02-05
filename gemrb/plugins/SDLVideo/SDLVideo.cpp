@@ -39,11 +39,11 @@
 #include <cassert>
 #include <cstdio>
 
-#ifdef TARGET_OS_IPHONE
+#if TARGET_OS_IPHONE
 extern "C" {
 	#include "SDL_sysvideo.h"
+	#include "SDL_uikitkeyboard.h"
 }
-#include "SDL_uikitkeyboard.h"
 #endif
 #ifdef ANDROID
 #include "SDL_screenkeyboard.h"
@@ -393,7 +393,7 @@ int SDLVideoDriver::PollEvents() {
 					key = GEM_RIGHT;
 					break;
 				case SDLK_DELETE:
-#ifndef TARGET_OS_IPHONE
+#if TARGET_OS_IPHONE < 1
 					//iOS currently doesnt have a backspace so we use delete. 
 					//This change should be future proof in the event apple changes the delete key to a backspace.
 					key = GEM_DELETE;
@@ -463,8 +463,10 @@ int SDLVideoDriver::PollEvents() {
 			MouseMovement(event.motion.x, event.motion.y);
 			break;
 		case SDL_MOUSEBUTTONDOWN:
-			// ???: We may need a check to exclude mousewheel buttons on SDL 1.3+
-			// otherwise we may get a double scroll.
+			// exclude mousewheel buttons on SDL 1.3+ otherwise we get a double scroll due to SDL_MOUSEWHEEL.
+#if SDL_VERSION_ATLEAST(1,3,0)
+			if (event.button.button == SDL_BUTTON_WHEELDOWN || event.button.button == SDL_BUTTON_WHEELUP) break;
+#endif
 			if ((DisableMouse & MOUSE_DISABLED) || !Evnt)
 				break;
 			ignoreNextMouseUp = false;
@@ -483,6 +485,10 @@ int SDLVideoDriver::PollEvents() {
 			break;
 
 		case SDL_MOUSEBUTTONUP:
+			// exclude mousewheel buttons on SDL 1.3+ otherwise we get a double scroll due to SDL_MOUSEWHEEL.
+#if SDL_VERSION_ATLEAST(1,3,0)
+			if (event.button.button == SDL_BUTTON_WHEELDOWN || event.button.button == SDL_BUTTON_WHEELUP) break;
+#endif
 			lastevent = false;
 			if ((DisableMouse & MOUSE_DISABLED) || !Evnt || ignoreNextMouseUp)
 				break;
@@ -508,9 +514,9 @@ int SDLVideoDriver::PollEvents() {
 #if SDL_VERSION_ATLEAST(1,3,0)
 		case SDL_MOUSEWHEEL://SDL 1.3+
 			short scrollX;
-			scrollX= event.wheel.x;
+			scrollX= event.wheel.x * -1;
 			short scrollY;
-			scrollY= event.wheel.y;
+			scrollY= event.wheel.y * -1;
 			Evnt->MouseWheelScroll( scrollX, scrollY );
 			break;
 		case SDL_FINGERMOTION://SDL 1.3+
@@ -531,13 +537,15 @@ int SDLVideoDriver::PollEvents() {
 					int scrollY = (event.tfinger.dy / yScaleFactor) * -1;
 
 					Evnt->MouseWheelScroll( scrollX, scrollY );
-				} else if (numFingers == core->NumFingKboard ) {
-					ignoreNextMouseUp = true;
+				} else if (numFingers == core->NumFingKboard) {
 					if ((event.tfinger.dy / yScaleFactor) * -1 >= MIN_GESTURE_DELTA_PIXELS){
-						ShowSoftKeyboard();
+						// if the keyboard is already up interpret this gesture as console pop
+						if(softKeyboardShowing && !ConsolePopped && !ignoreNextMouseUp) core->PopupConsole();
+						else ShowSoftKeyboard();
 					} else if((event.tfinger.dy / yScaleFactor) * -1 <= -MIN_GESTURE_DELTA_PIXELS){
 						HideSoftKeyboard();
 					}
+					ignoreNextMouseUp = true;
 				}
 			}
 			break;
@@ -584,7 +592,7 @@ int SDLVideoDriver::PollEvents() {
 			switch (event.window.event) {
 				case SDL_WINDOWEVENT_MINIMIZED://SDL 1.3
 					core->GetAudioDrv()->Pause();//this is for ANDROID mostly
-					core->Autopause(AP_GENERIC);
+					core->Autopause(AP_GENERIC, NULL);
 					break;
 				case SDL_WINDOWEVENT_RESTORED://SDL 1.3
 					/*
@@ -639,14 +647,15 @@ This method is intended for devices with no physical keyboard or with an optiona
 */
 void SDLVideoDriver::HideSoftKeyboard()
 {
-
 	if(core->UseSoftKeyboard){
-#ifdef TARGET_OS_IPHONE
+#if TARGET_OS_IPHONE
 		SDL_iPhoneKeyboardHide(SDL_GetFocusWindow());
 #endif
 #ifdef ANDROID
 		SDL_ANDROID_SetScreenKeyboardShown(0);
 #endif
+		softKeyboardShowing = false;
+		if(core->ConsolePopped) core->PopupConsole();
 	}
 }
 
@@ -656,12 +665,13 @@ This method is intended for devices with no physical keyboard or with an optiona
 void SDLVideoDriver::ShowSoftKeyboard()
 {
 	if(core->UseSoftKeyboard){
-#ifdef TARGET_OS_IPHONE
+#if TARGET_OS_IPHONE
 		SDL_iPhoneKeyboardShow(SDL_GetFocusWindow());
 #endif
 #ifdef ANDROID
 		SDL_ANDROID_SetScreenKeyboardShown(1);
 #endif
+		softKeyboardShowing = true;
 	}
 }
 
@@ -758,26 +768,19 @@ void SDLVideoDriver::AddPolygonToSpriteCover(SpriteCover* sc,
 Sprite2D* SDLVideoDriver::CreateSprite(int w, int h, int bpp, ieDword rMask,
 	ieDword gMask, ieDword bMask, ieDword aMask, void* pixels, bool cK, int index)
 {
-	Sprite2D* spr = new Sprite2D();
-	void* p = SDL_CreateRGBSurfaceFrom( pixels, w, h, bpp, w*( bpp / 8 ),
+	SDL_Surface* p = SDL_CreateRGBSurfaceFrom( pixels, w, h, bpp, w*( bpp / 8 ),
 				rMask, gMask, bMask, aMask );
-	spr->vptr = p;
-	spr->pixels = pixels;
 	if (cK) {
 		SDL_SetColorKey( ( SDL_Surface * ) p, SDL_SRCCOLORKEY | SDL_RLEACCEL,
 			index );
 	}
-	spr->Width = w;
-	spr->Height = h;
-	spr->Bpp = bpp;
-	return spr;
+	return new Sprite2D(w, h, bpp, p, pixels);
 }
 
 Sprite2D* SDLVideoDriver::CreateSprite8(int w, int h, int bpp, void* pixels,
 	void* palette, bool cK, int index)
 {
-	Sprite2D* spr = new Sprite2D();
-	void* p = SDL_CreateRGBSurfaceFrom( pixels, w, h, 8, w, 0, 0, 0, 0 );
+	SDL_Surface* p = SDL_CreateRGBSurfaceFrom( pixels, w, h, 8, w, 0, 0, 0, 0 );
 	int colorcount;
 	if (bpp == 8) {
 		colorcount = 256;
@@ -785,15 +788,10 @@ Sprite2D* SDLVideoDriver::CreateSprite8(int w, int h, int bpp, void* pixels,
 		colorcount = 16;
 	}
 	GEM_SetPalette( ( SDL_Surface * ) p, SDL_LOGPAL, ( SDL_Color * ) palette, 0, colorcount );
-	spr->vptr = p;
-	spr->pixels = pixels;
 	if (cK) {
 		SDL_SetColorKey( ( SDL_Surface * ) p, SDL_SRCCOLORKEY, index );
 	}
-	spr->Width = w;
-	spr->Height = h;
-	spr->Bpp = bpp;
-	return spr;
+	return new Sprite2D(w, h, bpp, p, pixels);
 }
 
 Sprite2D* SDLVideoDriver::CreateSpriteBAM8(int w, int h, bool rle,
@@ -801,10 +799,7 @@ Sprite2D* SDLVideoDriver::CreateSpriteBAM8(int w, int h, bool rle,
 					 AnimationFactory* datasrc,
 					 Palette* palette, int transindex)
 {
-	Sprite2D* spr = new Sprite2D();
-	spr->BAM = true;
 	Sprite2D_BAM_Internal* data = new Sprite2D_BAM_Internal;
-	spr->vptr = data;
 
 	palette->IncRef();
 	data->pal = palette;
@@ -815,11 +810,8 @@ Sprite2D* SDLVideoDriver::CreateSpriteBAM8(int w, int h, bool rle,
 	data->source = datasrc;
 	datasrc->IncDataRefCount();
 
-	spr->pixels = (const void*)pixeldata;
-	spr->Width = w;
-	spr->Height = h;
-	spr->Bpp = 8; // FIXME!!!!
-
+	Sprite2D* spr = new Sprite2D(w, h, 8 /* FIXME!!!! */, data, pixeldata);
+	spr->BAM = true;
 	return spr;
 }
 
@@ -2638,7 +2630,7 @@ void SDLVideoDriver::ClickMouse(unsigned int button)
 	}
 }
 
-void SDLVideoDriver::MouseClickEvent(Uint8 type, Uint8 button)
+void SDLVideoDriver::MouseClickEvent(SDL_EventType type, Uint8 button)
 {
 	SDL_Event *event = new SDL_Event();
 	event->type = type;

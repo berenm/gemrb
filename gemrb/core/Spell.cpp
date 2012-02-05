@@ -31,6 +31,8 @@
 #include "ProjectileServer.h"
 #include "Scriptable/Actor.h"
 
+static int pstflags = false;
+
 SPLExtHeader::SPLExtHeader(void)
 {
 	features = NULL;
@@ -45,6 +47,7 @@ Spell::Spell(void)
 {
 	ext_headers = NULL;
 	casting_features = NULL;
+	pstflags = !!core->HasFeature(GF_PST_STATE_FLAGS);
 }
 
 Spell::~Spell(void)
@@ -132,7 +135,7 @@ EffectQueue *Spell::GetEffectBlock(Scriptable *self, const Point &pos, int block
 		} else {
 			features = ext_headers[block_index].features;
 			count = ext_headers[block_index].FeatureCount;
-			if (!(ext_headers[block_index].Hostile&4)) {
+			if (pstflags && !(ext_headers[block_index].Hostile&4)) {
 				pst_hostile = true;
 			}
 		}
@@ -242,4 +245,23 @@ unsigned int Spell::GetCastingDistance(Scriptable *Sender) const
 		return 0xffffffff;
 	}
 	return (unsigned int) seh->Range;
+}
+
+static EffectRef fx_damage_ref = { "Damage", -1 };
+// checks if any of the extended headers contains fx_damage
+bool Spell::ContainsDamageOpcode() const
+{
+	ieDword damage_opcode = EffectQueue::ResolveEffect(fx_damage_ref);
+	for (int h=0; h< ExtHeaderCount; h++) {
+		for (int i=0; i< ext_headers[h].FeatureCount; i++) {
+			Effect *fx = ext_headers[h].features+i;
+			if (fx->Opcode == damage_opcode) {
+				return true;
+			}
+		}
+		if (Flags & SF_SIMPLIFIED_DURATION) { // iwd2 has only one header
+			break;
+		}
+	}
+	return false;
 }

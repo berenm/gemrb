@@ -197,6 +197,17 @@ inline PyObject* AttributeError(const char* doc_string)
 		return RuntimeError("Can't find GameControl!"); \
 	}
 
+#define GET_ACTOR_GLOBAL() \
+	Actor* actor; \
+	if (globalID > 1000) { \
+		actor = game->GetActorByGlobalID( globalID ); \
+	} else { \
+		actor = game->FindPC( globalID ); \
+	} \
+	if (!actor) { \
+		return RuntimeError( "Actor not found!\n" ); \
+	}
+
 inline Control *GetControl( int wi, int ci, int ct)
 {
 	char errorbuffer[256];
@@ -859,6 +870,26 @@ static PyObject* GemRB_Window_SetPos(PyObject * /*self*/, PyObject* args)
 	return Py_None;
 }
 
+PyDoc_STRVAR( GemRB_Window_GetPos__doc,
+"window.GetPos()\n\n"
+"Returns tuple (x,y) of window position." );
+
+static PyObject* GemRB_Window_GetPos(PyObject * /*self*/, PyObject* args)
+{
+	int WindowIndex;
+
+	if (!PyArg_ParseTuple( args, "i", &WindowIndex)) {
+		return AttributeError( GemRB_Window_GetPos__doc );
+	}
+
+	Window* win = core->GetWindow( WindowIndex );
+	if (win == NULL) {
+		return RuntimeError("Cannot find window!\n");
+	}
+
+	return Py_BuildValue("(ii)", (int)win->XPos, (int)win->YPos);
+}
+
 PyDoc_STRVAR( GemRB_LoadTable__doc,
 "LoadTable(2DAResRef, [ignore_error=0]) => GTable\n\n"
 "Loads a 2DA Table." );
@@ -1228,10 +1259,6 @@ static PyObject* GemRB_Window_GetControl(PyObject * /*self*/, PyObject* args)
 		return RuntimeError( "Control is not found" );
 	}
 
-	PyObject* ctrltuple = PyTuple_New(2);
-	PyTuple_SET_ITEM(ctrltuple, 0, PyInt_FromLong(WindowIndex));
-	PyTuple_SET_ITEM(ctrltuple, 1, PyInt_FromLong(ctrlindex));
-
 	PyObject* ret = 0;
 	Control *ctrl = GetControl(WindowIndex, ctrlindex, -1);
 	if (!ctrl) {
@@ -1260,6 +1287,7 @@ static PyObject* GemRB_Window_GetControl(PyObject * /*self*/, PyObject* args)
 	default:
 		break;
 	}
+	PyObject* ctrltuple = Py_BuildValue("(ii)", WindowIndex, ctrlindex);
 	ret = gs->ConstructObject(type, ctrltuple);
 	Py_DECREF(ctrltuple);
 
@@ -1803,8 +1831,11 @@ static PyObject* GemRB_Control_SetStatus(PyObject * /*self*/, PyObject* args)
 	}
 
 	int ret = core->SetControlStatus( WindowIndex, ControlIndex, status );
-	if (ret == -1) {
-		return NULL;
+	switch (ret) {
+	case -1:
+		return RuntimeError( "Control is not found." );
+	case -2:
+		return RuntimeError( "Control type is not matching." );
 	}
 
 	Py_INCREF( Py_None );
@@ -2231,6 +2262,42 @@ static PyObject* GemRB_TextEdit_ConvertEdit(PyObject * /*self*/, PyObject* args)
 		return NULL;
 	}
 	return PyInt_FromLong( ret );
+}
+
+PyDoc_STRVAR( GemRB_TextEdit_SetBackground__doc,
+"SetBackground(WindowIndex, ControlIndex, ResRef)\n\n"
+"Sets the background MOS for a TextEdit control.");
+
+static PyObject* GemRB_TextEdit_SetBackground(PyObject * /*self*/, PyObject* args)
+{
+	int WindowIndex, ControlIndex;
+	char *ResRef;
+
+	if (!PyArg_ParseTuple( args, "iis", &WindowIndex, &ControlIndex,&ResRef) ) {
+		return AttributeError( GemRB_TextEdit_SetBackground__doc );
+	}
+	TextEdit* te = ( TextEdit* ) GetControl(WindowIndex, ControlIndex, IE_GUI_EDIT);
+	if (!te) {
+		return NULL;
+	}
+
+	if (ResRef[0]) {
+		ResourceHolder<ImageMgr> im(ResRef);
+		if (im == NULL) {
+			return RuntimeError("Picture resource not found!\n");
+		}
+
+		Sprite2D* Picture = im->GetSprite2D();
+		if (Picture == NULL) {
+			return RuntimeError("Failed to acquire the picture!\n");
+		}
+		te->SetBackGround(Picture);
+	} else {
+		te->SetBackGround(NULL);
+	}
+
+	Py_INCREF( Py_None );
+	return Py_None;
 }
 
 PyDoc_STRVAR( GemRB_ScrollBar_SetSprites__doc,
@@ -2933,6 +3000,26 @@ static PyObject* GemRB_Control_SetPos(PyObject * /*self*/, PyObject* args)
 	return Py_None;
 }
 
+PyDoc_STRVAR( GemRB_Control_GetPos__doc,
+"control.GetPos()\n\n"
+"Returns tuple (x,y) of control position." );
+
+static PyObject* GemRB_Control_GetPos(PyObject * /*self*/, PyObject* args)
+{
+	int WindowIndex, ControlIndex;
+
+	if (!PyArg_ParseTuple( args, "ii", &WindowIndex, &ControlIndex)) {
+		return AttributeError( GemRB_Control_GetPos__doc );
+	}
+
+	Control* ctrl = GetControl(WindowIndex, ControlIndex, -1);
+	if (!ctrl) {
+		return NULL;
+	}
+
+	return Py_BuildValue("(ii)", (int)ctrl->XPos, (int)ctrl->YPos);
+}
+
 PyDoc_STRVAR( GemRB_Control_SetSize__doc,
 "SetControlSize(WindowIndex, ControlIndex, Width, Height)\n\n"
 "Resizes a Control." );
@@ -3135,6 +3222,21 @@ static PyObject* GemRB_GameControlGetTargetMode(PyObject * /*self*/, PyObject* /
 	GET_GAMECONTROL();
 
 	return PyInt_FromLong(gc->GetTargetMode());
+}
+
+PyDoc_STRVAR( GemRB_GameControlToggleAlwaysRun__doc,
+"GameControlToggleAlwaysRun()\n\n"
+"Toggles using running instead of walking by default" );
+
+static PyObject* GemRB_GameControlToggleAlwaysRun(PyObject * /*self*/, PyObject* /*args*/)
+{
+
+	GET_GAMECONTROL();
+
+	gc->ToggleAlwaysRun();
+
+	Py_INCREF( Py_None );
+	return Py_None;
 }
 
 PyDoc_STRVAR( GemRB_Button_SetFlags__doc,
@@ -4629,18 +4731,15 @@ PyDoc_STRVAR( GemRB_GetPlayerStates__doc,
 
 static PyObject* GemRB_GetPlayerStates(PyObject * /*self*/, PyObject* args)
 {
-	int PartyID;
+	int globalID;
 
-	if (!PyArg_ParseTuple( args, "i", &PartyID )) {
+	if (!PyArg_ParseTuple( args, "i", &globalID )) {
 		return AttributeError( GemRB_GetPlayerStates__doc );
 	}
 	GET_GAME();
+	GET_ACTOR_GLOBAL();
 
-	Actor* MyActor = game->FindPC( PartyID );
-	if (!MyActor) {
-		return RuntimeError( "Actor not found!\n" );
-	}
-	return PyString_FromString((const char *) MyActor->GetStateString() );
+	return PyString_FromString((const char *) actor->GetStateString() );
 }
 
 PyDoc_STRVAR( GemRB_GetPlayerName__doc,
@@ -5148,20 +5247,17 @@ PyDoc_STRVAR( GemRB_GetPlayerStat__doc,
 
 static PyObject* GemRB_GetPlayerStat(PyObject * /*self*/, PyObject* args)
 {
-	int PlayerSlot, StatID, StatValue, BaseStat;
+	int globalID, StatID, StatValue, BaseStat;
 
 	BaseStat = 0;
-	if (!PyArg_ParseTuple( args, "ii|i", &PlayerSlot, &StatID, &BaseStat )) {
+	if (!PyArg_ParseTuple( args, "ii|i", &globalID, &StatID, &BaseStat )) {
 		return AttributeError( GemRB_GetPlayerStat__doc );
 	}
 	GET_GAME();
+	GET_ACTOR_GLOBAL();
 
-	Actor* MyActor = game->FindPC( PlayerSlot );
-	if (!MyActor) {
-		return RuntimeError("Cannot find actor!\n");
-	}
 	//returning the modified stat if BaseStat was 0 (default)
-	StatValue = GetCreatureStat( MyActor, StatID, !BaseStat );
+	StatValue = GetCreatureStat( actor, StatID, !BaseStat );
 	return PyInt_FromLong( StatValue );
 }
 
@@ -5171,20 +5267,17 @@ PyDoc_STRVAR( GemRB_SetPlayerStat__doc,
 
 static PyObject* GemRB_SetPlayerStat(PyObject * /*self*/, PyObject* args)
 {
-	int PlayerSlot, StatID, StatValue;
+	int globalID, StatID, StatValue;
 	int pcf = 1;
 
-	if (!PyArg_ParseTuple( args, "iii|i", &PlayerSlot, &StatID, &StatValue, &pcf )) {
+	if (!PyArg_ParseTuple( args, "iii|i", &globalID, &StatID, &StatValue, &pcf)) {
 		return AttributeError( GemRB_SetPlayerStat__doc );
 	}
 	GET_GAME();
+	GET_ACTOR_GLOBAL();
 
-	Actor* MyActor = game->FindPC( PlayerSlot );
-	if (!MyActor) {
-		return RuntimeError("Cannot find actor!\n");
-	}
 	//Setting the creature's base stat
-	SetCreatureStat( MyActor, StatID, StatValue, pcf);
+	SetCreatureStat( actor, StatID, StatValue, pcf);
 	Py_INCREF( Py_None );
 	return Py_None;
 }
@@ -6478,17 +6571,13 @@ PyDoc_STRVAR( GemRB_GetMemorizableSpellsCount__doc,
 
 static PyObject* GemRB_GetMemorizableSpellsCount(PyObject* /*self*/, PyObject* args)
 {
-	int PartyID, SpellType, Level, Bonus=1;
+	int globalID, SpellType, Level, Bonus=1;
 
-	if (!PyArg_ParseTuple( args, "iii|i", &PartyID, &SpellType, &Level, &Bonus )) {
+	if (!PyArg_ParseTuple( args, "iii|i", &globalID, &SpellType, &Level, &Bonus )) {
 		return AttributeError( GemRB_GetMemorizableSpellsCount__doc );
 	}
 	GET_GAME();
-
-	Actor* actor = game->FindPC( PartyID );
-	if (!actor) {
-		return RuntimeError( "Actor not found!\n" );
-	}
+	GET_ACTOR_GLOBAL();
 
 	//this isn't in the actor's spellbook, handles Wisdom
 	return PyInt_FromLong(actor->spellbook.GetMemorizableSpellsCount( (ieSpellType) SpellType, Level, (bool) Bonus ) );
@@ -6500,17 +6589,13 @@ PyDoc_STRVAR( GemRB_SetMemorizableSpellsCount__doc,
 
 static PyObject* GemRB_SetMemorizableSpellsCount(PyObject* /*self*/, PyObject* args)
 {
-	int PartyID, Value, SpellType, Level;
+	int globalID, Value, SpellType, Level;
 
-	if (!PyArg_ParseTuple( args, "iiii", &PartyID, &Value, &SpellType, &Level)) {
+	if (!PyArg_ParseTuple( args, "iiii", &globalID, &Value, &SpellType, &Level)) {
 		return AttributeError( GemRB_SetMemorizableSpellsCount__doc );
 	}
 	GET_GAME();
-
-	Actor* actor = game->FindPC( PartyID );
-	if (!actor) {
-		return RuntimeError( "Actor not found!\n" );
-	}
+	GET_ACTOR_GLOBAL();
 
 	//the bonus increased value (with wisdom too) is handled by the core
 	actor->spellbook.SetMemorizableSpellsCount( Value, (ieSpellType) SpellType, Level, 0 );
@@ -6521,47 +6606,35 @@ static PyObject* GemRB_SetMemorizableSpellsCount(PyObject* /*self*/, PyObject* a
 
 PyDoc_STRVAR( GemRB_GetKnownSpellsCount__doc,
 "GetKnownSpellsCount(PartyID, SpellType, Level)=>int\n\n"
-"Returns number of known spells of given type and level in PC's spellbook." );
+"Returns number of known spells of given type and level in PC's spellbook.");
 
 static PyObject* GemRB_GetKnownSpellsCount(PyObject * /*self*/, PyObject* args)
 {
-	int PartyID, SpellType, Level;
+	int globalID, SpellType, Level;
 
-	if (!PyArg_ParseTuple( args, "iii", &PartyID, &SpellType, &Level )) {
+
+	if (!PyArg_ParseTuple( args, "iii", &globalID, &SpellType, &Level)) {
 		return AttributeError( GemRB_GetKnownSpellsCount__doc );
 	}
 	GET_GAME();
-
-	Actor* actor = game->FindPC( PartyID );
-	if (!actor) {
-		return RuntimeError( "Actor not found!\n" );
-	}
+	GET_ACTOR_GLOBAL();
 
 	return PyInt_FromLong(actor->spellbook.GetKnownSpellsCount( SpellType, Level ) );
 }
 
 PyDoc_STRVAR( GemRB_GetKnownSpell__doc,
 "GetKnownSpell(PartyID, SpellType, Level, Index)=>dict\n\n"
-"Returns dict with specified known spell from PC's spellbook." );
+"Returns dict with specified known spell from PC's spellbook.");
 
 static PyObject* GemRB_GetKnownSpell(PyObject * /*self*/, PyObject* args)
 {
-	int PartyID, SpellType, Level, Index, global = 0;
+	int globalID, SpellType, Level, Index;
 
-	if (!PyArg_ParseTuple( args, "iiii|i", &PartyID, &SpellType, &Level, &Index, &global )) {
+	if (!PyArg_ParseTuple( args, "iiii", &globalID, &SpellType, &Level, &Index)) {
 		return AttributeError( GemRB_GetKnownSpell__doc );
 	}
 	GET_GAME();
-
-	Actor* actor;
-	if (global) {
-		actor = game->GetActorByGlobalID( PartyID );
-	} else {
-		actor = game->FindPC( PartyID );
-	}
-	if (!actor) {
-		return RuntimeError( "Actor not found!\n" );
-	}
+	GET_ACTOR_GLOBAL();
 
 	CREKnownSpell* ks = actor->spellbook.GetKnownSpell( SpellType, Level, Index );
 	if (! ks) {
@@ -6577,31 +6650,20 @@ static PyObject* GemRB_GetKnownSpell(PyObject * /*self*/, PyObject* args)
 
 
 PyDoc_STRVAR( GemRB_GetMemorizedSpellsCount__doc,
-"GetMemorizedSpellsCount(PartyID, SpellType, Level, castable[, global])=>int\n\n"
+"GetMemorizedSpellsCount(PartyID, SpellType, Level, castable)=>int\n\n"
 "Returns number of spells of given type and level in PartyID's memory. "
-"If level is omitted then it returns the number of distinct spells memorised.\n"
-"If global is set, the actor will be looked up by its global ID instead of party slot.");
+"If level is omitted then it returns the number of distinct spells memorised.\n");
 
 static PyObject* GemRB_GetMemorizedSpellsCount(PyObject * /*self*/, PyObject* args)
 {
-	int PartyID, SpellType, Level = -1;
-	int global = 0;
-	bool castable;
+	int globalID, SpellType, Level = -1;
+	int castable;
 
-	if (!PyArg_ParseTuple( args, "iiii|i", &PartyID, &SpellType, &Level, &castable, &global )) {
+	if (!PyArg_ParseTuple( args, "iiii", &globalID, &SpellType, &Level, &castable)) {
 		return AttributeError( GemRB_GetMemorizedSpellsCount__doc );
 	}
 	GET_GAME();
-
-	Actor* actor;
-	if (global) {
-		actor = game->GetActorByGlobalID( PartyID );
-	} else {
-		actor = game->FindPC( PartyID );
-	}
-	if (!actor) {
-		return RuntimeError( "Actor not found!\n" );
-	}
+	GET_ACTOR_GLOBAL();
 
 	if (Level<0) {
 		if (castable) {
@@ -6616,21 +6678,17 @@ static PyObject* GemRB_GetMemorizedSpellsCount(PyObject * /*self*/, PyObject* ar
 
 PyDoc_STRVAR( GemRB_GetMemorizedSpell__doc,
 "GetMemorizedSpell(PartyID, SpellType, Level, Index)=>dict\n\n"
-"Returns dict with specified memorized spell from PC's spellbook." );
+"Returns dict with specified memorized spell from PC's spellbook.");
 
 static PyObject* GemRB_GetMemorizedSpell(PyObject * /*self*/, PyObject* args)
 {
-	int PartyID, SpellType, Level, Index;
+	int globalID, SpellType, Level, Index;
 
-	if (!PyArg_ParseTuple( args, "iiii", &PartyID, &SpellType, &Level, &Index )) {
+	if (!PyArg_ParseTuple( args, "iiii", &globalID, &SpellType, &Level, &Index)) {
 		return AttributeError( GemRB_GetMemorizedSpell__doc );
 	}
 	GET_GAME();
-
-	Actor* actor = game->FindPC( PartyID );
-	if (!actor) {
-		return RuntimeError( "Actor not found!\n" );
-	}
+	GET_ACTOR_GLOBAL();
 
 	CREMemorizedSpell* ms = actor->spellbook.GetMemorizedSpell( SpellType, Level, Index );
 	if (! ms) {
@@ -6680,8 +6738,61 @@ static PyObject* GemRB_GetSpell(PyObject * /*self*/, PyObject* args)
 	PyDict_SetItemString(dict, "SpellLevel", PyInt_FromLong (spell->SpellLevel));
 	PyDict_SetItemString(dict, "Completion", PyString_FromResRef (spell->CompletionSound));
 	PyDict_SetItemString(dict, "SpellTargetType", PyInt_FromLong (spell->GetExtHeader(0)->Target));
+	PyDict_SetItemString(dict, "NonHostile", PyInt_FromLong (!(spell->Flags&SF_HOSTILE) && !spell->ContainsDamageOpcode()));
+	PyDict_SetItemString(dict, "SpellResRef", PyString_FromResRef (spell->Name));
 	gamedata->FreeSpell( spell, ResRef, false );
 	return dict;
+}
+
+
+PyDoc_STRVAR( GemRB_CheckSpecialSpell__doc,
+			  "CheckSpecialSpell(GlobalID, SpellResRef)=>int\n\n"
+			  "Checks if the specified spell is special. Returns 0 for normal ones." );
+
+static PyObject* GemRB_CheckSpecialSpell(PyObject * /*self*/, PyObject* args)
+{
+	int globalID;
+	const char *SpellResRef;
+
+	if (!PyArg_ParseTuple( args, "is", &globalID, &SpellResRef)) {
+		return AttributeError( GemRB_CheckSpecialSpell__doc );
+	}
+	GET_GAME();
+
+	Actor* actor = game->GetActorByGlobalID( globalID );
+	if (!actor) {
+		return RuntimeError( "Actor not found!\n" );
+	}
+
+	int ret = core->CheckSpecialSpell( SpellResRef, actor );
+	return PyInt_FromLong( ret );
+}
+
+PyDoc_STRVAR( GemRB_GetSpelldataIndex__doc,
+			 "GetSpelldataIndex(globalID, spellResRef, type)=>int\n\n"
+			 "Returns the index of the spell in the spellbook's spelldata structure."
+);
+
+static PyObject* GemRB_GetSpelldataIndex(PyObject * /*self*/, PyObject* args)
+{
+	unsigned int globalID;
+	const char *spellResRef;
+	int type;
+
+	if (!PyArg_ParseTuple( args, "isi", &globalID, &spellResRef, &type)) {
+		return AttributeError( GemRB_GetSpelldataIndex__doc );
+	}
+
+	GET_GAME();
+
+	Actor* actor = game->GetActorByGlobalID( globalID );
+	if (!actor) {
+		return RuntimeError( "Actor not found!\n" );
+	}
+
+	SpellExtHeader spelldata;
+	int ret = actor->spellbook.FindSpellInfo(&spelldata, spellResRef, type);
+	return PyInt_FromLong( ret-1 );
 }
 
 
@@ -6825,14 +6936,14 @@ static PyObject* GemRB_RemoveItem(PyObject * /*self*/, PyObject* args)
 }
 
 PyDoc_STRVAR( GemRB_MemorizeSpell__doc,
-"MemorizeSpell(PartyID, SpellType, Level, Index)=>bool\n\n"
+"MemorizeSpell(PartyID, SpellType, Level, Index[, enabled])=>bool\n\n"
 "Memorizes specified known spell. Returns 1 on success." );
 
 static PyObject* GemRB_MemorizeSpell(PyObject * /*self*/, PyObject* args)
 {
-	int PartyID, SpellType, Level, Index;
+	int PartyID, SpellType, Level, Index, enabled=0;
 
-	if (!PyArg_ParseTuple( args, "iiii", &PartyID, &SpellType, &Level, &Index )) {
+	if (!PyArg_ParseTuple( args, "iiii|i", &PartyID, &SpellType, &Level, &Index, &enabled )) {
 		return AttributeError( GemRB_MemorizeSpell__doc );
 	}
 	GET_GAME();
@@ -6847,8 +6958,8 @@ static PyObject* GemRB_MemorizeSpell(PyObject * /*self*/, PyObject* args)
 		return RuntimeError( "Spell not found!" );
 	}
 
-	bool enabled = false;
-	if (SpellType == IE_SPELL_TYPE_INNATE) enabled = true;
+	// auto-refresh innates (memorisation defaults to depleted)
+	if (SpellType == IE_SPELL_TYPE_INNATE) enabled = 1;
 
 	return PyInt_FromLong( actor->spellbook.MemorizeSpell( ks, enabled ) );
 }
@@ -6881,35 +6992,24 @@ static PyObject* GemRB_UnmemorizeSpell(PyObject * /*self*/, PyObject* args)
 }
 
 PyDoc_STRVAR( GemRB_GetSlotItem__doc,
-"GetSlotItem(PartyID, slot[, global])=>dict\n\n"
-"Returns dict with specified slot item from PC's inventory or the dragged item if PartyID is 0.\n"
-"If global is set, the actor will be looked up by its global ID instead of party slot.");
+"GetSlotItem(PartyID, slot)=>dict\n\n"
+"Returns dict with specified slot item from PC's inventory or the dragged item if PartyID is 0.\n");
 
 static PyObject* GemRB_GetSlotItem(PyObject * /*self*/, PyObject* args)
 {
-	int PartyID, Slot;
-	int global = 0;
+	int globalID, Slot;
 
-	if (!PyArg_ParseTuple( args, "ii|i", &PartyID, &Slot, &global)) {
+	if (!PyArg_ParseTuple( args, "ii", &globalID, &Slot)) {
 		return AttributeError( GemRB_GetSlotItem__doc );
 	}
 	CREItem *si;
 	int header = -1;
 
-	if (PartyID==0) {
+	if (globalID==0) {
 		si = core->GetDraggedItem();
 	} else {
 		GET_GAME();
-
-		Actor* actor;
-		if (global) {
-			actor = game->GetActorByGlobalID( PartyID );
-		} else {
-			actor = game->FindPC( PartyID );
-		}
-		if (!actor) {
-			return RuntimeError( "Actor not found!\n" );
-		}
+		GET_ACTOR_GLOBAL();
 
 		Slot = core->QuerySlot(Slot);
 		header = actor->PCStats->GetHeaderForSlot(Slot);
@@ -8246,35 +8346,24 @@ static PyObject* GemRB_HasResource(PyObject * /*self*/, PyObject* args)
 }
 
 PyDoc_STRVAR( GemRB_Window_SetupEquipmentIcons__doc,
-"SetupEquipmentIcons(WindowIndex, dict, slot[, Start, Offset, global])\n\n"
+"SetupEquipmentIcons(WindowIndex, dict, slot[, Start, Offset])\n\n"
 "Automagically sets up the controls of the equipment list window for a PC indexed by globalID.\n"
 "Start is the beginning of the visible part of the item list.\n"
-"Offset is the ID of the first usable button.\n"
-"If global is set, the actor will be looked up by its global ID instead of party slot.");
+"Offset is the ID of the first usable button.\n");
 
 static PyObject* GemRB_Window_SetupEquipmentIcons(PyObject * /*self*/, PyObject* args)
 {
-	int wi, slot;
+	int wi, globalID;
 	int Start = 0;
 	int Offset = 0; //control offset (iwd2 has the action buttons starting at 6)
-	int global = 0;
 	PyObject *dict;
 
-	if (!PyArg_ParseTuple( args, "iOi|iii", &wi, &dict, &slot, &Start, &Offset, &global )) {
+	if (!PyArg_ParseTuple( args, "iOi|ii", &wi, &dict, &globalID, &Start, &Offset)) {
 		return AttributeError( GemRB_Window_SetupEquipmentIcons__doc );
 	}
 
 	GET_GAME();
-
-	Actor* actor;
-	if (global) {
-		actor = game->GetActorByGlobalID( slot );
-	} else {
-		actor = game->FindPC( slot );
-	}
-	if (!actor) {
-		return RuntimeError( "Actor not found!\n" );
-	}
+	GET_ACTOR_GLOBAL();
 
 	//-2 because of the left/right scroll icons
 	if (!ItemArray) {
@@ -8361,166 +8450,17 @@ static PyObject* GemRB_Window_SetupEquipmentIcons(PyObject * /*self*/, PyObject*
 	return Py_None;
 }
 
-PyDoc_STRVAR( GemRB_Window_SetupSpellIcons__doc,
-"SetupSpellIcons(WindowIndex, dict, slot, type[, Start, Offset, global])\n\n"
-"Automagically sets up the controls of the spell or innate list window for a PC indexed by slot.\n"
-"Start is the beginning of the visible part of the spell list.\n"
-"Offset is the ID of the first usable button.\n"
-"If global is set, the actor will be looked up by its global ID instead of party slot.");
-
-//order is: mage, cleric, innate, class, song, (defaults to 1, item)
-static int sections[]={2,4,8,16,16};
-
-static PyObject* GemRB_Window_SetupSpellIcons(PyObject * /*self*/, PyObject* args)
-{
-	int wi, slot, Type;
-	int Start = 0;
-	int Offset = 0;
-	int global = 0;
-	PyObject *dict;
-
-	if (!PyArg_ParseTuple( args, "iOii|iii", &wi, &dict, &slot, &Type, &Start, &Offset, &global )) {
-		return AttributeError( GemRB_Window_SetupSpellIcons__doc );
-	}
-
-	GET_GAME();
-
-	Actor* actor;
-	if (global) {
-		actor = game->GetActorByGlobalID( slot );
-	} else {
-		actor = game->FindPC( slot );
-	}
-	if (!actor) {
-		return RuntimeError( "Actor not found!\n" );
-	}
-
-	//-2 because of the left/right scroll icons
-	if (!SpellArray) {
-		SpellArray = (SpellExtHeader *) malloc((GUIBT_COUNT) * sizeof (SpellExtHeader) );
-	}
-	int more = actor->spellbook.GetSpellInfo(SpellArray, Type, Start, GUIBT_COUNT-(Start?1:0));
-	int i;
-	if (Start) {
-		more |= 2;
-	}
-	if (more) {
-		int ci = core->GetControl(wi, Offset);
-		PyObject *ret = SetActionIcon(wi, ci, dict, ACT_LEFT, 0);
-		if (!ret) {
-			return RuntimeError("Cannot set action button!\n");
-		}
-		Button * btn = (Button *) GetControl(wi, ci, IE_GUI_BUTTON);
-		if (Start) {
-			btn->SetState(IE_GUI_BUTTON_UNPRESSED);
-		} else {
-			btn->SetState(IE_GUI_BUTTON_DISABLED);
-		}
-	}
-
-	//FIXME: this is a hardcoded resource (pst has no such one)
-	AnimationFactory* bam = ( AnimationFactory* )
-		gamedata->GetFactoryResource( "guibtbut",
-				IE_BAM_CLASS_ID, IE_NORMAL );
-	if (!bam) {
-		return RuntimeError("guibtbut BAM not found");
-	}
-
-	// disable all spells if fx_disable_spellcasting was run with the same type
-	// but only if there are any spells of that type to disable
-	int disabled_spellcasting = actor->GetStat(IE_CASTING);
-
-//print("disable bits: %d\n", disabled_spellcasting);
-	for (i=0;i<GUIBT_COUNT-(more?2:0);i++) {
-		SpellExtHeader *spell = SpellArray+i;
-
-		int ci = core->GetControl(wi, i+Offset+(more?1:0) );
-		Button* btn = (Button *) GetControl( wi, ci, IE_GUI_BUTTON );
-		strcpy(btn->VarName,"Spell");
-		btn->Value = i+Start;
-
-		// disable spells that should be cast from the inventory
-		// Identify is misclassified and has Target 3 (Dead char)
-
-		int type = spell->type>4?1:sections[spell->type];
-
-//print("%s %d %d %s\n", spell->spellname, spell->type, type, (disabled_spellcasting&type) ? "disabled":"enabled" );
-		if (core->CheckSpecialSpell(spell->spellname, actor) || (disabled_spellcasting&type) ) {
-			btn->SetState(IE_GUI_BUTTON_DISABLED);
-			btn->EnableBorder(1, IE_GUI_BUTTON_DISABLED);
-			PyObject *Function = PyDict_GetItemString(dict, "UpdateActionsWindow");
-			btn->SetEvent(IE_GUI_BUTTON_ON_PRESS, new PythonCallback(Function)); //noop
-		} else {
-			btn->SetState(IE_GUI_BUTTON_UNPRESSED);
-			PyObject *Function = PyDict_GetItemString(dict, "SpellPressed");
-			btn->SetEvent(IE_GUI_BUTTON_ON_PRESS, new PythonCallback(Function));
-		}
-		Sprite2D *Picture = NULL;
-
-		if (spell->MemorisedIcon[0]) {
-			Picture = gamedata->GetBAMSprite(spell->MemorisedIcon, 0, 0);
-		}
-
-		if (!Picture) {
-			btn->SetState(IE_GUI_BUTTON_DISABLED);
-			btn->SetFlags(IE_GUI_BUTTON_NO_IMAGE, BM_SET);
-			btn->SetTooltip(NULL);
-		} else {
-			SetButtonCycle(bam, btn, 0, IE_GUI_BUTTON_UNPRESSED);
-			SetButtonCycle(bam, btn, 1, IE_GUI_BUTTON_PRESSED);
-			SetButtonCycle(bam, btn, 2, IE_GUI_BUTTON_SELECTED);
-			SetButtonCycle(bam, btn, 3, IE_GUI_BUTTON_DISABLED);
-			btn->SetPicture( Picture );
-			btn->SetFlags(IE_GUI_BUTTON_PICTURE|IE_GUI_BUTTON_ALIGN_BOTTOM|IE_GUI_BUTTON_ALIGN_RIGHT, BM_SET);
-			//cannot make this const, because it will be freed
-			char *tmp = core->GetString(spell->strref,0);
-			btn->SetTooltip(tmp);
-			core->FreeString(tmp);
-			char usagestr[10];
-
-			if (spell->count>0) {
-				sprintf(usagestr,"%d", spell->count);
-				btn->SetText( usagestr );
-				btn->SetState(IE_GUI_BUTTON_UNPRESSED);
-			} else {
-				btn->SetState(IE_GUI_BUTTON_DISABLED);
-			}
-		}
-	}
-
-	if (more) {
-		int ci = core->GetControl(wi, i+Offset+1);
-		PyObject *ret = SetActionIcon(wi, ci, dict, ACT_RIGHT, i+1);
-		if (!ret) {
-			return RuntimeError("Cannot set action button!\n");
-		}
-		Button* btn = (Button *) GetControl( wi, ci, IE_GUI_BUTTON );
-		if (more&1) {
-			btn->SetState(IE_GUI_BUTTON_UNPRESSED);
-		} else {
-			btn->SetState(IE_GUI_BUTTON_DISABLED);
-			btn->SetFlags(IE_GUI_BUTTON_NO_IMAGE, BM_SET);
-			btn->SetTooltip(NULL);
-		}
-	}
-
-	Py_INCREF( Py_None );
-	return Py_None;
-}
-
 PyDoc_STRVAR( GemRB_Window_SetupControls__doc,
-"SetupControls(WindowIndex, dict, slot[, Start, global])\n\n"
-"Automagically sets up the controls of the action window for a PC indexed by slot.\n"
-"If global is set, the actor will be looked up by its global ID instead of party slot.");
+"SetupControls(WindowIndex, dict, slot[, Startl])\n\n"
+"Automagically sets up the controls of the action window for a PC indexed by slot.\n");
 
 static PyObject* GemRB_Window_SetupControls(PyObject * /*self*/, PyObject* args)
 {
-	int wi, slot;
+	int wi, globalID;
 	int Start = 0;
-	int global = 0;
 	PyObject *dict;
 
-	if (!PyArg_ParseTuple( args, "iOi|ii", &wi, &dict, &slot, &Start, &global )) {
+	if (!PyArg_ParseTuple( args, "iOi|i", &wi, &dict, &globalID, &Start)) {
 		return AttributeError( GemRB_Window_SetupControls__doc );
 	}
 
@@ -8530,11 +8470,11 @@ static PyObject* GemRB_Window_SetupControls(PyObject * /*self*/, PyObject* args)
 
 	Actor* actor = NULL;
 
-	if (slot) {
-		if (global) {
-			actor = game->GetActorByGlobalID( slot );
+	if (globalID) {
+		if (globalID > 1000) {
+			actor = game->GetActorByGlobalID( globalID );
 		} else {
-			actor = game->FindPC( slot );
+			actor = game->FindPC( globalID );
 		}
 	} else {
 		if (game->selected.size()==1) {
@@ -8599,7 +8539,7 @@ static PyObject* GemRB_Window_SetupControls(PyObject * /*self*/, PyObject* args)
 				type = (1<<IE_SPELL_TYPE_INNATE)-1;
 			}
 			//returns true if there are ANY spells to cast
-			if (!actor->spellbook.GetSpellInfoSize(type)) {
+			if (!actor->spellbook.GetSpellInfoSize(type) || !actor->GetAnyActiveCasterLevel()) {
 				state = IE_GUI_BUTTON_DISABLED;
 			}
 			break;
@@ -8633,7 +8573,7 @@ static PyObject* GemRB_Window_SetupControls(PyObject * /*self*/, PyObject* args)
 			}
 			break;
 		case ACT_TURN:
-			if (actor->GetStat(IE_TURNUNDEADLEVEL)<1) {
+			if (actor->GetStat(IE_TURNUNDEADLEVEL)<1 || !actor->GetClericLevel()) {
 				state = IE_GUI_BUTTON_DISABLED;
 			} else {
 				if (modalstate==MS_TURNUNDEAD) {
@@ -8642,13 +8582,26 @@ static PyObject* GemRB_Window_SetupControls(PyObject * /*self*/, PyObject* args)
 			}
 			break;
 		case ACT_STEALTH:
-			if (modalstate==MS_STEALTH) {
-				state = IE_GUI_BUTTON_SELECTED;
+			if (!actor->GetThiefLevel() && !actor->GetMonkLevel() && !actor->GetRangerLevel()) {
+				state = IE_GUI_BUTTON_DISABLED;
+			} else {
+				if (modalstate==MS_STEALTH) {
+					state = IE_GUI_BUTTON_SELECTED;
+				}
 			}
 			break;
 		case ACT_SEARCH:
-			if (modalstate==MS_DETECTTRAPS) {
-				state = IE_GUI_BUTTON_SELECTED;
+			if (!actor->GetThiefLevel() && !actor->GetMonkLevel()) {
+				state = IE_GUI_BUTTON_DISABLED;
+			} else {
+				if (modalstate==MS_DETECTTRAPS) {
+					state = IE_GUI_BUTTON_SELECTED;
+				}
+			}
+			break;
+		case ACT_THIEVING:
+			if (!actor->GetThiefLevel() && !actor->GetBardLevel()) {
+				state = IE_GUI_BUTTON_DISABLED;
 			}
 			break;
 		case ACT_WEAPON1:
@@ -8766,6 +8719,7 @@ jump_label:
 		}
 		btn->SetState(state);
 		//you have to set this overlay up
+		//FIXME: is this really state==IE_GUI_BUTTON_DISABLED ??? That means active border for a disabled button
 		btn->EnableBorder(1, state==IE_GUI_BUTTON_DISABLED);
 	}
 	Py_INCREF( Py_None );
@@ -8773,28 +8727,19 @@ jump_label:
 }
 
 PyDoc_STRVAR( GemRB_ClearActions__doc,
-"ClearActions(slot[, global])\n\n"
-"Stops an action for a PC indexed by slot or if global is set, by global ID." );
+"ClearActions(slot)\n\n"
+"Stops an action for a PC indexed by slot or by global ID." );
 
 static PyObject* GemRB_ClearActions(PyObject * /*self*/, PyObject* args)
 {
-	int slot;
-	int global = 0;
+	int globalID;
 
-	if (!PyArg_ParseTuple( args, "i|i", &slot, &global )) {
+	if (!PyArg_ParseTuple( args, "i", &globalID)) {
 		return AttributeError( GemRB_ClearActions__doc );
 	}
 	GET_GAME();
+	GET_ACTOR_GLOBAL();
 
-	Actor* actor;
-	if (global) {
-		actor = game->GetActorByGlobalID( slot );
-	} else {
-		actor = game->FindPC( slot );
-	}
-	if (!actor) {
-		return RuntimeError( "Actor not found!\n" );
-	}
 	if (actor->GetInternalFlag()&IF_NOINT) {
 		printMessage( "GuiScript","Cannot break action!\n", GREEN);
 		Py_INCREF( Py_None );
@@ -8833,32 +8778,21 @@ static PyObject* GemRB_SetDefaultActions(PyObject * /*self*/, PyObject* args)
 
 
 PyDoc_STRVAR( GemRB_SetupQuickSpell__doc,
-"SetupQuickSpell(PartyID, spellslot, spellindex, type[, global])=>int\n\n"
+"SetupQuickSpell(PartyID, spellslot, spellindex, type)=>int\n\n"
 "Set up a quick spell slot of a PC.\n\n"
-"If global is set, the actor will be looked up by its global ID instead of party slot."
 "It also returns the target type of the selected spell.");
 
 static PyObject* GemRB_SetupQuickSpell(PyObject * /*self*/, PyObject* args)
 {
 	SpellExtHeader spelldata;
-	int PartyID, which, slot, type;
-	int global = 0;
+	int globalID, which, slot, type;
 
-	if (!PyArg_ParseTuple( args, "iiii|i", &PartyID, &slot, &which, &type, &global )) {
+	if (!PyArg_ParseTuple( args, "iiii", &globalID, &slot, &which, &type)) {
 		return AttributeError( GemRB_SetupQuickSpell__doc );
 	}
 
 	GET_GAME();
-
-	Actor* actor;
-	if (global) {
-		actor = game->GetActorByGlobalID( PartyID );
-	} else {
-		actor = game->FindPC( PartyID );
-	}
-	if (!actor) {
-		return RuntimeError( "Actor not found!\n" );
-	}
+	GET_ACTOR_GLOBAL();
 
 	if (!actor->PCStats) {
 		//no quick slots for this actor, is this an error?
@@ -8869,7 +8803,7 @@ static PyObject* GemRB_SetupQuickSpell(PyObject * /*self*/, PyObject* args)
 
 	actor->spellbook.GetSpellInfo(&spelldata, type, which, 1);
 	if (!spelldata.spellname[0]) {
-		return RuntimeError( "Invalid parameter!\n" );
+		return RuntimeError( "Invalid parameter! Spell not found!\n" );
 	}
 
 	memcpy(actor->PCStats->QuickSpells[slot], spelldata.spellname, sizeof(ieResRef) );
@@ -8879,33 +8813,22 @@ static PyObject* GemRB_SetupQuickSpell(PyObject * /*self*/, PyObject* args)
 }
 
 PyDoc_STRVAR( GemRB_SetupQuickSlot__doc,
-"SetupQuickSlot(PartyID, quickslot, inventoryslot[, headerindex, global])\n\n"
+"SetupQuickSlot(PartyID, quickslot, inventoryslot[, headerindex])\n\n"
 "Set up a quick slot or weapon slot of a PC to use a weapon ability.\n\n"
 "If the inventoryslot number is -1, only the header index will be changed. "
 "If the quick slot is 0, then the inventory slot will be used to find which "
-"headerindex should be set. The default value for headerindex is 0.\n"
-"If global is set, the actor will be looked up by its global ID instead of party slot.");
+"headerindex should be set. The default value for headerindex is 0.\n");
 
 static PyObject* GemRB_SetupQuickSlot(PyObject * /*self*/, PyObject* args)
 {
-	int PartyID, which, slot, headerindex = 0;
-	int global = 0;
+	int globalID, which, slot, headerindex = 0;
 
-	if (!PyArg_ParseTuple( args, "iii|ii", &PartyID, &which, &slot, &headerindex, &global )) {
+	if (!PyArg_ParseTuple( args, "iii|i", &globalID, &which, &slot, &headerindex)) {
 		return AttributeError( GemRB_SetupQuickSlot__doc );
 	}
 
 	GET_GAME();
-
-	Actor* actor;
-	if (global) {
-		actor = game->GetActorByGlobalID( PartyID );
-	} else {
-		actor = game->FindPC( PartyID );
-	}
-	if (!actor) {
-		return RuntimeError( "Actor not found!\n" );
-	}
+	GET_ACTOR_GLOBAL();
 
 	slot = core->QuerySlot(slot);
 	actor->SetupQuickSlot(which, slot, headerindex);
@@ -8914,64 +8837,42 @@ static PyObject* GemRB_SetupQuickSlot(PyObject * /*self*/, PyObject* args)
 }
 
 PyDoc_STRVAR( GemRB_SetEquippedQuickSlot__doc,
-"SetEquippedQuickSlot(PartyID, QWeaponSlot[, ability, global])->int\n\n"
+"SetEquippedQuickSlot(PartyID, QWeaponSlot[, ability])->int\n\n"
 "Sets the named weapon/item slot as equipped weapon slot, optionally sets the used ability."
-"Returns strref number of failure (0 success, -1 silent failure).\n"
-"If global is set, the actor will be looked up by its global ID instead of party slot.");
+"Returns strref number of failure (0 success, -1 silent failure).\n");
 
 static PyObject* GemRB_SetEquippedQuickSlot(PyObject * /*self*/, PyObject* args)
 {
 	int slot;
-	int PartyID;
+	int globalID;
 	int ability = -1;
-	int global = 0;
 
-	if (!PyArg_ParseTuple( args, "ii|ii", &PartyID, &slot, &ability, &global)) {
+	if (!PyArg_ParseTuple( args, "ii|i", &globalID, &slot, &ability)) {
 		return AttributeError( GemRB_SetEquippedQuickSlot__doc );
 	}
 
 	GET_GAME();
-
-	Actor* actor;
-	if (global) {
-		actor = game->GetActorByGlobalID( PartyID );
-	} else {
-		actor = game->FindPC( PartyID );
-	}
-	if (!actor) {
-		return RuntimeError( "Actor not found!\n" );
-	}
+	GET_ACTOR_GLOBAL();
 
 	int ret = actor->SetEquippedQuickSlot(slot, ability);
 	return PyInt_FromLong( ret );
 }
 
 PyDoc_STRVAR( GemRB_GetEquippedQuickSlot__doc,
-"GetEquippedQuickSlot(PartyID[, NoTrans, global]) => Slot\n\n"
-"Returns the inventory slot (translation) or quick weapon index (no translation) of the equipped weapon.\n"
-"If global is set, the actor will be looked up by its global ID instead of party slot.");
+"GetEquippedQuickSlot(PartyID[, NoTrans]) => Slot\n\n"
+"Returns the inventory slot (translation) or quick weapon index (no translation) of the equipped weapon.\n");
 
 static PyObject* GemRB_GetEquippedQuickSlot(PyObject * /*self*/, PyObject* args)
 {
-	int PartyID;
+	int globalID;
 	int NoTrans = 0;
-	int global = 0;
 
-	if (!PyArg_ParseTuple( args, "i|ii", &PartyID, &NoTrans, &global)) {
+	if (!PyArg_ParseTuple( args, "i|i", &globalID, &NoTrans)) {
 		return AttributeError( GemRB_GetEquippedQuickSlot__doc );
 	}
 
 	GET_GAME();
-
-	Actor* actor;
-	if (global) {
-		actor = game->GetActorByGlobalID( PartyID );
-	} else {
-		actor = game->FindPC( PartyID );
-	}
-	if (!actor) {
-		return RuntimeError( "Actor not found!\n" );
-	}
+	GET_ACTOR_GLOBAL();
 
 	int ret = actor->inventory.GetEquippedSlot();
 	/*int effect = core->QuerySlotEffects(ret);
@@ -9023,32 +8924,22 @@ static PyObject* GemRB_GetEquippedAmmunition(PyObject * /*self*/, PyObject* args
 }
 
 PyDoc_STRVAR( GemRB_SetModalState__doc,
-"SetModalState(slot, state[, global, spell])\n\n"
+"SetModalState(slot, state[, spell])\n\n"
 "Sets the modal state of the actor.\n"
-"If 'spell' is not given, it will set a default spell resource associated with the state.\n"
-"If global is set, the actor will be looked up by its global ID instead of party slot.");
+"If 'spell' is not given, it will set a default spell resource associated with the state.\n");
 
 static PyObject* GemRB_SetModalState(PyObject * /*self*/, PyObject* args)
 {
-	int slot;
+	int globalID;
 	int state;
-	int global = 0;
 	const char *spell=NULL;
 
-	if (!PyArg_ParseTuple( args, "ii|is", &slot, &state, &global, &spell )) {
+	if (!PyArg_ParseTuple( args, "ii|s", &globalID, &state, &spell )) {
 		return AttributeError( GemRB_SetModalState__doc );
 	}
 	GET_GAME();
+	GET_ACTOR_GLOBAL();
 
-	Actor* actor;
-	if (global) {
-		actor = game->GetActorByGlobalID( slot );
-	} else {
-		actor = game->FindPC( slot );
-	}
-	if (!actor) {
-		return RuntimeError( "Actor not found!\n" );
-	}
 	actor->SetModal( (ieDword) state, 0);
 	actor->SetModalSpell(state, spell);
 
@@ -9057,34 +8948,23 @@ static PyObject* GemRB_SetModalState(PyObject * /*self*/, PyObject* args)
 }
 
 PyDoc_STRVAR( GemRB_SpellCast__doc,
-"SpellCast(slot, type, spell[, global])\n\n"
+"SpellCast(slot, type, spell)\n\n"
 "Makes the actor try to cast a spell. Type is the spell type like 3 for normal spells and 4 for innates.\n"
 "If type is -1, then the castable spell list will be deleted and no spell will be cast.\n"
-"Spell is the index of the spell in the memorised spell list.\n"
-"If global is set, the actor will be looked up by its global ID instead of party slot.\n");
+"Spell is the index of the spell in the memorised spell list.\n");
 
 static PyObject* GemRB_SpellCast(PyObject * /*self*/, PyObject* args)
 {
-	unsigned int slot;
+	unsigned int globalID;
 	int type;
 	unsigned int spell;
-	int global = 0;
 
-	if (!PyArg_ParseTuple( args, "iii|i", &slot, &type, &spell, &global )) {
+	if (!PyArg_ParseTuple( args, "iii", &globalID, &type, &spell)) {
 		return AttributeError( GemRB_SpellCast__doc );
 	}
 
 	GET_GAME();
-
-	Actor* actor;
-	if (global) {
-		actor = game->GetActorByGlobalID( slot );
-	} else {
-		actor = game->FindPC( slot );
-	}
-	if (!actor) {
-		return RuntimeError( "Actor not found!\n" );
-	}
+	GET_ACTOR_GLOBAL();
 
 	//don't cast anything, just reinit the spell list
 	if (type==-1) {
@@ -9103,9 +8983,14 @@ static PyObject* GemRB_SpellCast(PyObject * /*self*/, PyObject* args)
 			Py_INCREF( Py_None );
 			return Py_None;
 		}
-		//quick spell type is available in actor->PCStats->QuickSpellClasses, if needed
-		actor->spellbook.FindSpellInfo(&spelldata, actor->PCStats->QuickSpells[spell]);
+		actor->spellbook.FindSpellInfo(&spelldata, actor->PCStats->QuickSpells[spell], actor->PCStats->QuickSpellClass[spell]);
 	} else {
+		ieDword ActionLevel = 0;
+		core->GetDictionary()->Lookup("ActionLevel", ActionLevel);
+		if (ActionLevel == 5) {
+			// get the right spell, since the lookup below only checks the memorized list
+			actor->spellbook.SetCustomSpellInfo(NULL, NULL, type);
+		}
 		actor->spellbook.GetSpellInfo(&spelldata, type, spell, 1);
 	}
 
@@ -9189,38 +9074,28 @@ static PyObject* GemRB_ApplySpell(PyObject * /*self*/, PyObject* args)
 }
 
 PyDoc_STRVAR( GemRB_UseItem__doc,
-"UseItem(actor, slot, header[,forcetarget,global])\n\n"
+"UseItem(actor, slot, header[,forcetarget])\n\n"
 "Makes the actor try to use an item. "
 "If slot is -1, then header is the index of the item functionality in the use item list. "
 "If slot is -2, then header is the quickslot index. "
-"If slot is non-negative, then header is the header of the item in the 'slot'.\n"
-"If global is set, the actor will be looked up by its global ID instead of party slot.");
+"If slot is non-negative, then header is the header of the item in the 'slot'.\n");
 
 static PyObject* GemRB_UseItem(PyObject * /*self*/, PyObject* args)
 {
-	int PartyID;
+	int globalID;
 	int slot;
 	int header;
 	int forcetarget=-1; //some crappy scrolls don't target self correctly!
-	int global = 0;
 
-	if (!PyArg_ParseTuple( args, "iii|ii", &PartyID, &slot, &header, &forcetarget, &global )) {
+	if (!PyArg_ParseTuple( args, "iii|i", &globalID, &slot, &header, &forcetarget)) {
 		return AttributeError( GemRB_UseItem__doc );
 	}
 
 	GET_GAME();
 
 	GET_GAMECONTROL();
+	GET_ACTOR_GLOBAL();
 
-	Actor* actor;
-	if (global) {
-		actor = game->GetActorByGlobalID( PartyID );
-	} else {
-		actor = game->FindPC( PartyID );
-	}
-	if (!actor) {
-		return RuntimeError( "Actor not found!\n" );
-	}
 	ItemExtHeader itemdata;
 	int flags = 0;
 
@@ -9379,6 +9254,25 @@ static PyObject* GemRB_RestParty(PyObject * /*self*/, PyObject* args)
 	GET_GAME();
 
 	game->RestParty(noareacheck, dream, hp);
+	Py_INCREF( Py_None );
+	return Py_None;
+}
+
+PyDoc_STRVAR( GemRB_ChargeSpells__doc,
+			  "ChargeSpells(globalID|pc)\n\n"
+			  "Recharges the actor's spells.");
+static PyObject* GemRB_ChargeSpells(PyObject * /*self*/, PyObject* args)
+{
+	int globalID;
+
+	if (!PyArg_ParseTuple( args, "i", &globalID)) {
+		return AttributeError( GemRB_ChargeSpells__doc );
+	}
+	GET_GAME();
+	GET_ACTOR_GLOBAL();
+
+	actor->spellbook.ChargeAllSpells();
+
 	Py_INCREF( Py_None );
 	return Py_None;
 }
@@ -9619,8 +9513,10 @@ static PyObject* GemRB_StealFailed(PyObject * /*self*/, PyObject* /*args*/)
 	}
 
 	//not sure if this is ok
-	//owner->LastAttacker = attacker->GetID();
 	//owner->LastDisarmFailed = attacker->GetGlobalID();
+	if (core->HasFeature(GF_STEAL_IS_ATTACK)) {
+		owner->AttackedBy(attacker);
+	}
 	owner->AddTrigger(TriggerEntry(trigger_stealfailed, attacker->GetGlobalID()));
 	Py_INCREF( Py_None );
 	return Py_None;
@@ -10152,7 +10048,9 @@ static PyMethodDef GemRBMethods[] = {
 	METHOD(ChangeContainerItem, METH_VARARGS),
 	METHOD(ChangeItemFlag, METH_VARARGS),
 	METHOD(ChangeStoreItem, METH_VARARGS),
+	METHOD(ChargeSpells, METH_VARARGS),
 	METHOD(CheckFeatCondition, METH_VARARGS),
+	METHOD(CheckSpecialSpell, METH_VARARGS),
 	METHOD(CheckVar, METH_VARARGS),
 	METHOD(ClearActions, METH_VARARGS),
 	METHOD(CountEffects, METH_VARARGS),
@@ -10178,6 +10076,7 @@ static PyMethodDef GemRBMethods[] = {
 	METHOD(FillPlayerInfo, METH_VARARGS),
 	METHOD(FindStoreItem, METH_VARARGS),
 	METHOD(GameControlGetTargetMode, METH_NOARGS),
+	METHOD(GameControlToggleAlwaysRun, METH_NOARGS),
 	METHOD(GameControlSetLastActor, METH_VARARGS),
 	METHOD(GameControlSetScreenFlags, METH_VARARGS),
 	METHOD(GameControlSetTargetMode, METH_VARARGS),
@@ -10249,6 +10148,7 @@ static PyMethodDef GemRBMethods[] = {
 	METHOD(GetStoreCure, METH_VARARGS),
 	METHOD(GetStoreItem, METH_VARARGS),
 	METHOD(GetSpell, METH_VARARGS),
+	METHOD(GetSpelldataIndex, METH_VARARGS),
 	METHOD(GetSlotItem, METH_VARARGS),
 	METHOD(GetSlots, METH_VARARGS),
 	METHOD(GetSystemVariable, METH_VARARGS),
@@ -10359,6 +10259,7 @@ static PyMethodDef GemRBInternalMethods[] = {
 	METHOD(Button_SetState, METH_VARARGS),
 	METHOD(Button_SetTextColor, METH_VARARGS),
 	METHOD(Control_AttachScrollBar, METH_VARARGS),
+	METHOD(Control_GetPos, METH_VARARGS),
 	METHOD(Control_QueryText, METH_VARARGS),
 	METHOD(Control_SetAnimation, METH_VARARGS),
 	METHOD(Control_SetAnimationPalette, METH_VARARGS),
@@ -10402,6 +10303,7 @@ static PyMethodDef GemRBInternalMethods[] = {
 	METHOD(TextArea_SelectText, METH_VARARGS),
 	METHOD(TextArea_SetHistory, METH_VARARGS),
 	METHOD(TextEdit_ConvertEdit, METH_VARARGS),
+	METHOD(TextEdit_SetBackground, METH_VARARGS),
 	METHOD(TextEdit_SetBufferLength, METH_VARARGS),
 	METHOD(Window_CreateButton, METH_VARARGS),
 	METHOD(Window_CreateLabel, METH_VARARGS),
@@ -10411,6 +10313,7 @@ static PyMethodDef GemRBInternalMethods[] = {
 	METHOD(Window_CreateWorldMapControl, METH_VARARGS),
 	METHOD(Window_DeleteControl, METH_VARARGS),
 	METHOD(Window_GetControl, METH_VARARGS),
+	METHOD(Window_GetPos, METH_VARARGS),
 	METHOD(Window_HasControl, METH_VARARGS),
 	METHOD(Window_Invalidate, METH_VARARGS),
 	METHOD(Window_SetFrame, METH_VARARGS),
@@ -10420,7 +10323,6 @@ static PyMethodDef GemRBInternalMethods[] = {
 	METHOD(Window_SetVisible, METH_VARARGS),
 	METHOD(Window_SetupControls, METH_VARARGS),
 	METHOD(Window_SetupEquipmentIcons, METH_VARARGS),
-	METHOD(Window_SetupSpellIcons, METH_VARARGS),
 	METHOD(Window_ShowModal, METH_VARARGS),
 	METHOD(Window_Unload, METH_VARARGS),
 	METHOD(WorldMap_AdjustScrolling, METH_VARARGS),

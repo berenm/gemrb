@@ -9,6 +9,9 @@ Makefile.in
 .deps
 .libs
 .dirstamp
+.DS_Store
+xcuserdata
+*.pbxuser
 
 /aclocal.m4
 /admin/config.guess

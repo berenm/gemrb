@@ -57,6 +57,18 @@ int ScrollBar::GetFrameHeight(int frame) const
 	return Frames[frame]->Height;
 }
 
+void ScrollBar::CalculateStep()
+{
+	if (Value){
+		stepPx = (double)((double)(Height
+							   - GetFrameHeight(IE_GUI_SCROLLBAR_SLIDER)
+							   - GetFrameHeight(IE_GUI_SCROLLBAR_DOWN_UNPRESSED)
+							   - GetFrameHeight(IE_GUI_SCROLLBAR_UP_UNPRESSED)) / (double)(Value));
+	}else{
+		stepPx = 0.0;
+	}
+}
+
 /** Sets a new position, relays the change to an associated textarea and calls
 	any existing GUI OnChange callback */
 void ScrollBar::SetPos(ieDword NewPos, bool redraw)
@@ -145,6 +157,7 @@ void ScrollBar::ScrollDown()
 
 double ScrollBar::GetStep()
 {
+	CalculateStep();
 	return stepPx;
 }
 
@@ -212,15 +225,6 @@ void ScrollBar::SetImage(unsigned char type, Sprite2D* img)
 		core->GetVideoDriver()->FreeSprite(Frames[type]);
 	}
 	Frames[type] = img;
-	//recalculate step
-	if(Value){
-		stepPx = (double)((double)(Height
-							   - GetFrameHeight(IE_GUI_SCROLLBAR_SLIDER)
-							   - GetFrameHeight(IE_GUI_SCROLLBAR_DOWN_UNPRESSED)
-							   - GetFrameHeight(IE_GUI_SCROLLBAR_UP_UNPRESSED)) / (double)(Value));
-	}else{
-		stepPx = 0;
-	}
 	Changed = true;
 }
 
@@ -239,7 +243,6 @@ void ScrollBar::OnMouseDown(unsigned short /*x*/, unsigned short y,
 		ScrollDown();
 		return;
 	}
-	
 	if (y <= GetFrameHeight(IE_GUI_SCROLLBAR_UP_UNPRESSED) ) {
 		State |= UP_PRESS;
 		ScrollUp();
@@ -250,20 +253,14 @@ void ScrollBar::OnMouseDown(unsigned short /*x*/, unsigned short y,
 		ScrollDown();
 		return;
 	}
-	// check that stepPx is set if value is set
-	if (Value && !stepPx) {
-		SetMax(Value);
-	}
-	if (y >= SliderYPos && y < SliderYPos + GetFrameHeight(IE_GUI_SCROLLBAR_SLIDER)) {
-		/*
-		 TODO: factor in where we grab the slider and offset it when dragging.
-		 */
-		State |= SLIDER_GRAB;
-		return;
-	}
-	// if we made it this far we will jump the nib y and "grab" it
+	CalculateStep();
+	// if we made it this far we will jump the nib to y and "grab" it
 	// this way we only need to click once to jump+scroll
 	State |= SLIDER_GRAB;
+	if (y >= SliderYPos && y < SliderYPos + GetFrameHeight(IE_GUI_SCROLLBAR_SLIDER)) {
+		Frames[IE_GUI_SCROLLBAR_SLIDER]->YPos = y - SliderYPos;
+		return;
+	}
 	SetPosForY(y - GetFrameHeight(IE_GUI_SCROLLBAR_UP_UNPRESSED));
 }
 
@@ -273,6 +270,7 @@ void ScrollBar::OnMouseUp(unsigned short /*x*/, unsigned short /*y*/,
 {
 	Changed = true;
 	State = 0;
+	Frames[IE_GUI_SCROLLBAR_SLIDER]->YPos = 0; //this is to clear any offset incurred by grabbing the slider
 }
 
 /** Mousewheel scroll */
@@ -289,11 +287,9 @@ void ScrollBar::OnMouseWheelScroll(short /*x*/, short y)
 /** Mouse Over Event */
 void ScrollBar::OnMouseOver(unsigned short /*x*/, unsigned short y)
 {
-	if (( State & SLIDER_GRAB ) != 0 && y > GetFrameHeight(IE_GUI_SCROLLBAR_UP_UNPRESSED)) {
-		/*
-		 TODO: factor in where we grab the slider and offset it when dragging.
-		 */
-		SetPosForY(y - GetFrameHeight(IE_GUI_SCROLLBAR_UP_UNPRESSED));
+	if (( State & SLIDER_GRAB )
+		&& y >= (GetFrameHeight(IE_GUI_SCROLLBAR_UP_UNPRESSED) + Frames[IE_GUI_SCROLLBAR_SLIDER]->YPos)) {
+		SetPosForY(y - GetFrameHeight(IE_GUI_SCROLLBAR_UP_UNPRESSED) - Frames[IE_GUI_SCROLLBAR_SLIDER]->YPos);
 	}
 }
 
@@ -303,16 +299,8 @@ void ScrollBar::SetMax(unsigned short Max)
 	Value = Max;
 	if (Max == 0) {
 		SetPos( 0 );
-		stepPx = 0;
-	} else {
-		//recalculate step
-		stepPx = (double)((double)(Height
-								   - GetFrameHeight(IE_GUI_SCROLLBAR_SLIDER)
-								   - GetFrameHeight(IE_GUI_SCROLLBAR_DOWN_UNPRESSED)
-								   - GetFrameHeight(IE_GUI_SCROLLBAR_UP_UNPRESSED)) / (double)(Value));
-		if (Pos >= Max) {
-			SetPos( Max - 1 );
-		}
+	} else if (Pos >= Max){
+		SetPos( Max - 1 );
 	}
 }
 

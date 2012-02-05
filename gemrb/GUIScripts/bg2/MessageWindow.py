@@ -189,8 +189,50 @@ def FixProtagonist( idx):
 	ClassIndex = CommonTables.Classes.FindValue (5, Class)
 	ClassName = CommonTables.Classes.GetRowName (ClassIndex)
 	KitIndex = GUICommon.GetKitIndex (idx)
-	GiveEquipment(idx, ClassName, KitIndex)
+	# only give a few items for transitions from soa
+	if GemRB.GetVar("oldgame"):
+		# give the Amulet of Seldarine to the pc's first empty inventory slot
+		invslot = GemRB.GetSlots (idx, -1, -1)[0]
+		GemRB.CreateItem(idx, "AMUL27", invslot, 1, 0, 0)
+		GemRB.ChangeItemFlag (idx, invslot, IE_INV_ITEM_IDENTIFIED, OP_OR)
+		# TODO: give bag19/bag19a (.../19e?) based on the experience
+		invslot = GemRB.GetSlots (idx, -1, -1)[0]
+		GemRB.CreateItem(idx, "BAG19A", invslot, 1, 0, 0)
+		GemRB.ChangeItemFlag (idx, invslot, IE_INV_ITEM_IDENTIFIED, OP_OR)
+
+		# adjust the XP to the minimum if it is lower and set a difficulty variable to the difference
+		xp = GemRB.GetPlayerStat(idx, IE_XP)
+		# FIXME: not fair for disabled dual-classes (should take the inactive level xp into account)
+		xp2 = CommonTables.ClassSkills.GetValue (ClassName, "STARTXP2")
+		if xp2 > xp:
+			GemRB.SetPlayerStat(idx, IE_XP, xp2)
+			GemRB.SetGlobal("XPGIVEN","GLOBAL", xp2-xp)
+
+		FixFamiliar()
+		FixInnates()
+	else:
+		GiveEquipment(idx, ClassName, KitIndex)
 	return
+
+# TODO: replace the familiar with the improved version
+def FixFamiliar():
+	# famcat->famcat25
+	# famdust->famdus25
+	# famfair->famfai25
+	# famfer->famfer25
+	# famimp->famimp25
+	# fampsd->fampsd25
+	# famquas->famqua25
+	# famrab->famrab25
+	# resummon the familiar? Make sure the marker effect is there, so death would incur the constitution penalty
+	pass
+
+# TODO: replace bhaal powers with the improved versions (cross-check with chargen; powers are removed during soa)
+def FixInnates():
+	# removes the spells: SPIN101, SPIN102, SPIN103, SPIN104, SPIN105, SPIN106, SPIN822
+	# adds the spell: SPIN822 (slayer change), check if this is needed (two uses), since we add it during chargen
+	#adds the spell: SPIN200, SPIN201, SPIN103, SPIN202, SPIN203, SPIN106
+	pass
 
 #upgrade savegame to next version
 def GameExpansion():
@@ -202,7 +244,7 @@ def GameExpansion():
 	if not GUICommon.HasTOB():
 		return
 
-	if GemRB.GetVar("oldgame"):
+	if version < 5 and not GemRB.GetVar("PlayMode") and GemRB.GetVar("oldgame"):
 		#upgrade SoA to ToB/SoA
 		if GemRB.GameSetExpansion(4):
 			GemRB.AddNewArea("xnewarea")
@@ -212,6 +254,7 @@ def GameExpansion():
 		return
 
 	#upgrade to ToB only
+	GemRB.SetVar ("SaveDir", 1)
 	GemRB.SetMasterScript("BALDUR25","WORLDM25")
 	GemRB.SetGlobal("INTOB","GLOBAL",1)
 	GemRB.SetGlobal("HADELLESIMEDREAM1","GLOBAL", 1)
@@ -221,9 +264,13 @@ def GameExpansion():
 	GemRB.SetGlobal("HADJONDREAM1","GLOBAL", 1)
 	GemRB.SetGlobal("HADJONDREAM2","GLOBAL", 1)
 	idx = GemRB.GetPartySize()
+	PDialogTable = GemRB.LoadTable ("pdialog")
 	
 	while idx:
 		name = GemRB.GetPlayerName(idx, 2) #scripting name
+		# change the override script to the new one
+		newScript = PDialogTable.GetValue ("25OVERRIDE_SCRIPT_FILE", name.upper())
+		SetPlayerScript (idx, newScript, 0) # 0 is SCR_OVERRIDE, the override script slot
 		if name == "yoshimo":
 			RemoveYoshimo(idx)
 		elif name == "imoen":

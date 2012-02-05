@@ -115,7 +115,11 @@ static ieDword sel_snd_freq = 0;
 static ieDword cmd_snd_freq = 0;
 static ieDword bored_time = 3000;
 //the chance to issue one of the rare select verbal constants
-#define RARE_SELECT_CHANCE 1
+#define RARE_SELECT_CHANCE 5
+//these are the max number of select sounds -- the size of the pool to choose from
+#define NUM_RARE_SELECT_SOUNDS 2 //in bg and pst it is actually 4 TODO: check
+#define NUM_SELECT_SOUNDS 6 //in bg1 this is 4 but doesn't need to be checked
+#define NUM_MC_SELECT_SOUNDS 4 //number of main charater select sounds
 
 //item usability array
 struct ItemUseType {
@@ -204,6 +208,7 @@ ActionButtonRow DefaultButtons = {ACT_TALK, ACT_WEAPON1, ACT_WEAPON2,
 	ACT_QSLOT3, ACT_INNATE};
 static int QslotTranslation = false;
 static int DeathOnZeroStat = true;
+static int IWDSound = false;
 static ieDword TranslucentShadows = 0;
 static int ProjectileSize = 0; //the size of the projectile immunity bitfield (dwords)
 
@@ -757,7 +762,7 @@ bool Actor::ApplyKit(bool remove)
 	}
 	//single class
 	ieDword cls = GetStat(IE_CLASS);
-	if (cls<(ieDword) classcount) {
+	if (cls>=(ieDword) classcount) {
 		return false;
 	}
 	max = GetClassLevel(levelslotsbg[cls]);
@@ -789,8 +794,7 @@ void Actor::ApplyClab(const char *clab, ieDword max, bool remove)
 void pcf_morale (Actor *actor, ieDword /*oldValue*/, ieDword /*newValue*/)
 {
 	if ((actor->Modified[IE_MORALE]<=actor->Modified[IE_MORALEBREAK]) && (actor->Modified[IE_MORALEBREAK] != 0) ) {
-		//TODO: current attacker should be passed instead of NULL
-		actor->Panic(NULL, core->Roll(1,3,0) );
+		actor->Panic(core->GetGame()->GetActorByGlobalID(actor->LastAttacker), core->Roll(1,3,0) );
 	}
 	//for new colour
 	actor->SetCircleSize();
@@ -1120,6 +1124,9 @@ void pcf_fatigue(Actor *actor, ieDword oldValue, ieDword newValue)
 	actor->BaseStats[IE_FATIGUE] = newValue;
 	// compensate for the change and modify luck
 	luckMod = core->ResolveStatBonus(actor, "fatigue") - luckMod;
+	// the default value isn't 0, but the maximum penalty and we need to ignore
+	// it due to the constitution bonus possibly putting the value out of range
+	if (luckMod < -80) luckMod = 0;
 	actor->SetBase(IE_LUCK, actor->BaseStats[IE_LUCK] + luckMod);
 
 	// reuse the luck mod to determine when the actor is tired
@@ -1437,6 +1444,7 @@ static void InitActorTables()
 	ReverseToHit = core->HasFeature(GF_REVERSE_TOHIT);
 	CheckAbilities = core->HasFeature(GF_CHECK_ABILITIES);
 	DeathOnZeroStat = core->HasFeature(GF_DEATH_ON_ZERO_STAT);
+	IWDSound = core->HasFeature(GF_SOUNDS_INI);
 
 	//this table lists various level based xp bonuses
 	AutoTable tm("xpbonus");
@@ -2082,14 +2090,48 @@ void Actor::AddAnimation(const ieResRef resource, int gradient, int height, int 
 	AddVVCell(sca);
 }
 
+//Returns the personal critical damage type in a binary compatible form (PST)
+//TODO: may want to preload the crits table to avoid spam in the log
+int Actor::GetCriticalType() const
+{
+	long ret = 0;
+	AutoTable tm("crits");
+	if (!tm) return 0;
+	//the ID of this PC (first 2 rows are empty)
+	int row = BaseStats[IE_SPECIFIC];
+	//defaults to 0
+	valid_number(tm->QueryField(row, 1), ret);
+	return (int) ret;
+}
+
+//Plays personal critical damage animation for PST PC's melee attacks
+void Actor::PlayCritDamageAnimation(int type)
+{
+	AutoTable tm("crits");
+	if (!tm) return;
+	//the ID's are in column 1, selected by specifics by GetCriticalType
+	int row = tm->FindTableValue (1, type);
+	if (row>=0) {
+		//the animations are listed in column 0
+		AddAnimation(tm->QueryField(row, 0), -1, 0, AA_PLAYONCE);
+	}
+}
+
 void Actor::PlayDamageAnimation(int type, bool hit)
 {
 	int i;
 
 	print("Damage animation type: %d\n", type);
 
-	switch(type) {
-		case 0: case 1: case 2: case 3: //blood
+	switch(type&255) {
+		case 0:
+			//PST specific personal criticals
+			if (type&0xff00) {
+				PlayCritDamageAnimation(type>>8);
+				break;
+			}
+			//fall through
+		case 1: case 2: case 3: //blood
 			i = anims->GetBloodColor();
 			if (!i) i = d_gradient[type];
 			if(hit) {
@@ -2292,6 +2334,8 @@ void Actor::DisablePortraitIcon(ieByte icon)
 	}
 }
 
+static EffectRef fx_set_charmed_state_ref = { "State:Charmed", -1 };
+
 /** call this after load, to apply effects */
 void Actor::RefreshEffects(EffectQueue *fx)
 {
@@ -2361,10 +2405,30 @@ void Actor::RefreshEffects(EffectQueue *fx)
 
 	for (std::list<TriggerEntry>::iterator m = triggers.begin(); m != triggers.end (); m++) {
 		m->flags |= TEF_PROCESSED_EFFECTS;
+		if (m->triggerID == trigger_attackedby) {
+			Actor *attacker = core->GetGame()->GetActorByGlobalID(LastAttacker);
+			if (attacker) {
+				int revertToEA = 0;
+				if (Modified[IE_EA] == EA_CHARMED && attacker->GetStat(IE_EA) <= EA_GOODCUTOFF) {
+					revertToEA = EA_ENEMY;
+				} else if (Modified[IE_EA] == EA_CHARMEDPC && attacker->GetStat(IE_EA) >= EA_EVILCUTOFF) {
+					revertToEA = EA_PC;
+				}
+				if (revertToEA) {
+					// remove only the plain charm effect
+					Effect *charmfx = fxqueue.HasEffectWithParam(fx_set_charmed_state_ref, 1);
+					if (!charmfx) charmfx = fxqueue.HasEffectWithParam(fx_set_charmed_state_ref, 1001);
+					if (charmfx) {
+						SetStat(IE_EA, revertToEA, 1);
+						fxqueue.RemoveEffect(charmfx);
+					}
+				}
+			}
+		}
 	}
 
 	// IE_CLASS is >classcount for non-PCs/NPCs
-	if (BaseStats[IE_CLASS] > 0 && BaseStats[IE_CLASS] <= (ieDword)classcount)
+	if (BaseStats[IE_CLASS] > 0 && BaseStats[IE_CLASS] < (ieDword)classcount)
 		RefreshPCStats();
 
 	for (i=0;i<MAX_STATS;i++) {
@@ -2492,10 +2556,11 @@ void Actor::RefreshHP() {
 void Actor::RefreshPCStats() {
 	RefreshHP();
 
+	Game *game = core->GetGame();
 	//morale recovery every xth AI cycle
 	int mrec = GetStat(IE_MORALERECOVERYTIME);
 	if (mrec) {
-		if (!(core->GetGame()->GameTime%mrec)) {
+		if (!(game->GameTime%mrec)) {
 			NewBase(IE_MORALE,1,MOD_ADDITIVE);
 		}
 	}
@@ -2528,14 +2593,28 @@ void Actor::RefreshPCStats() {
 			//wspattack appears to only effect warriors
 			int defaultattacks = 2 + 2*dualwielding;
 			if (stars) {
+				// In bg2 the proficiency and warrior level bonus is added after effects, so also ranged weapons are affected,
+				// since their rate of fire (apr) is set using an effect with a flat modifier.
+				// SetBase will compensate only for the difference between the current two stats, not considering the default
+				// example: actor with a bow gets 4 due to the equipping effect, while the wspatck bonus is 0-3
+				// the adjustment results in a base of 2-5 (2+[0-3]) and the modified stat degrades to 4+(4-[2-5]) = 8-[2-5] = 3-6
+				// instead of 4+[0-3] = 4-7
+				// For a master ranger at level 14, the difference ends up as 2 (1 apr).
+				// FIXME: but this isn't universally true or improved haste couldn't double the total apr! For the above case, we're half apr off.
 				if (tmplevel) {
-					SetBase(IE_NUMBEROFATTACKS, defaultattacks+wspattack[stars][tmplevel]);
+					int mod = Modified[IE_NUMBEROFATTACKS] - BaseStats[IE_NUMBEROFATTACKS];
+					BaseStats[IE_NUMBEROFATTACKS] = defaultattacks+wspattack[stars][tmplevel];
+					if (GetAttackStyle() == WEAPON_RANGED) { // FIXME: should actually check if a set-apr opcode variant was used
+						Modified[IE_NUMBEROFATTACKS] += wspattack[stars][tmplevel]; // no default
+					} else {
+						Modified[IE_NUMBEROFATTACKS] = BaseStats[IE_NUMBEROFATTACKS] + mod;
+					}
 				} else {
-					SetBase(IE_NUMBEROFATTACKS, defaultattacks);
+					SetBase(IE_NUMBEROFATTACKS, defaultattacks); // TODO: check if this shouldn't get +wspattack[stars][0]
 				}
 			} else {
 				// unproficient user - force defaultattacks
-				SetStat(IE_NUMBEROFATTACKS, defaultattacks, 0);
+				SetBase(IE_NUMBEROFATTACKS, defaultattacks);
 			}
 		}
 	}
@@ -2544,7 +2623,8 @@ void Actor::RefreshPCStats() {
 	Modified[IE_LORE] += core->GetLoreBonus(0, Modified[IE_INT]) + core->GetLoreBonus(0, Modified[IE_WIS]);
 
 	// add fatigue every 4 hours
-	if (!(core->GetGame()->GameTime % 18000)) {
+	// but make sure we're in the game already or players will start tired due to getting called with equipping effects before
+	if (game->GameTime && !(game->GameTime % 18000)) {
 		NewBase(IE_FATIGUE, 1, MOD_ADDITIVE);
 	}
 	if (core->ResolveStatBonus(this, "fatigue")) {
@@ -2555,7 +2635,7 @@ void Actor::RefreshPCStats() {
 
 	// regenerate actors with high enough constitution
 	int rate = core->GetConstitutionBonus(STAT_CON_HP_REGEN, Modified[IE_CON]);
-	if (rate && !(core->GetGame()->GameTime % (rate*AI_UPDATE_TIME))) {
+	if (rate && !(game->GameTime % (rate*AI_UPDATE_TIME))) {
 		NewBase(IE_HITPOINTS, 1, MOD_ADDITIVE);
 	}
 
@@ -2709,15 +2789,24 @@ ieStrRef Actor::GetVerbalConstant(int index) const
 
 void Actor::VerbalConstant(int start, int count) const
 {
-	ieStrRef vc;
-
-	count=rand()%count;
-
-	while(count>=0 && (!(vc = GetVerbalConstant(start+count)) || (vc==(ieStrRef) -1)) ) {
-		count--;
-	}
-	if(count>=0) {
-		DisplayStringCore((Scriptable *const) this, vc, DS_CONSOLE );
+	//If we are main character (has SoundSet) we have to check a corresponding wav file exists
+	if (PCStats && PCStats->SoundSet[0]){
+		ieResRef soundref;
+		ResolveStringConstant(soundref, start+count-1);
+		while (count > 0 && !gamedata->Exists(soundref, IE_WAV_CLASS_ID, true)) {
+			count--;
+			ResolveStringConstant(soundref, start+count-1);
+		}
+		if (count > 0){
+			DisplayStringCore((Scriptable *const) this, start + rand()%count, DS_CONSOLE|DS_CONST);
+		}
+	} else { //If we are anyone else we have to check there is a corresponding strref
+		while(count > 0 && GetVerbalConstant(start+count-1) == (ieStrRef) -1 ) {
+			count--;
+		}
+		if(count > 0) {
+			DisplayStringCore((Scriptable *const) this, GetVerbalConstant(start+rand()%count), DS_CONSOLE );
+		}
 	}
 }
 
@@ -2888,15 +2977,21 @@ void Actor::SelectActor() const
 		case 0:
 			return;
 		case 1:
-			if (core->Roll(1,100,0)>25) return;
+			if (core->Roll(1,100,0) > 25) return;
 		default:;
 	}
 
-	//drop the rare selection comment 1% of the time
-	if (core->Roll(1,100,0) <= RARE_SELECT_CHANCE) {
-		VerbalConstant(VB_SELECT_RARE,2);
+	//drop the rare selection comment 5% of the time
+	if (InParty && core->Roll(1,100,0) <= RARE_SELECT_CHANCE){
+		//rare select on main character for BG1 won't work atm
+		VerbalConstant(VB_SELECT_RARE, NUM_RARE_SELECT_SOUNDS);
 	} else {
-		VerbalConstant(VB_SELECT,6);
+		//checks if we are main character to limit select sounds
+		if (PCStats && PCStats->SoundSet[0]) {
+			VerbalConstant(VB_SELECT, NUM_MC_SELECT_SOUNDS);
+		} else {
+			VerbalConstant(VB_SELECT, NUM_SELECT_SOUNDS);
+		}
 	}
 }
 
@@ -2955,7 +3050,7 @@ void Actor::IdleActions(bool nonidle)
 			nextBored=time+core->Roll(1,30,bored_time);
 		}
 	} else {
-		if (nextBored<time) {
+		if (nextBored<time && !InMove()) {
 			nextBored = time+core->Roll(1,30,bored_time/10);
 			VerbalConstant(VB_BORED, 1);
 		}
@@ -2981,8 +3076,6 @@ void Actor::Panic(Scriptable *attacker, int panicmode)
 
 	Action *action;
 	char Tmp[40];
-	//FIXME: GenerateActionDirect should work on any scriptable
-	//they just need global ID
 	if (panicmode == PANIC_RUNAWAY && (!attacker || attacker->Type!=ST_ACTOR)) {
 		panicmode = PANIC_RANDOMWALK;
 	}
@@ -2990,7 +3083,7 @@ void Actor::Panic(Scriptable *attacker, int panicmode)
 	switch(panicmode) {
 	case PANIC_RUNAWAY:
 		strncpy(Tmp,"RunAwayFromNoInterrupt([-1])", sizeof(Tmp) );
-		action = GenerateActionDirect(Tmp, (Actor *) attacker);
+		action = GenerateActionDirect(Tmp, attacker);
 		break;
 	case PANIC_RANDOMWALK:
 		strncpy(Tmp,"RandomWalk()", sizeof(Tmp) );
@@ -3089,7 +3182,7 @@ bool Actor::AttackIsStunning(int damagetype) const {
 static EffectRef fx_sleep_ref = { "State:Helpless", -1 };
 
 //returns actual damage
-int Actor::Damage(int damage, int damagetype, Scriptable *hitter, int modtype)
+int Actor::Damage(int damage, int damagetype, Scriptable *hitter, int modtype, int critical)
 {
 	//won't get any more hurt
 	if (InternalFlags & IF_REALLYDIED) {
@@ -3117,7 +3210,7 @@ int Actor::Damage(int damage, int damagetype, Scriptable *hitter, int modtype)
 	}
 
 	int resisted = 0;
-	ModifyDamage (hitter, damage, resisted, damagetype, NULL, false);
+	ModifyDamage (hitter, damage, resisted, damagetype, NULL, critical);
 
 	DisplayCombatFeedback(damage, resisted, damagetype, hitter);
 
@@ -3196,7 +3289,7 @@ int Actor::Damage(int damage, int damagetype, Scriptable *hitter, int modtype)
 		PlayDamageAnimation(DL_DISINTEGRATE+damagelevel);
 	} else {
 		if (chp<-10) {
-			PlayDamageAnimation(DL_CRITICAL);
+			PlayDamageAnimation(critical<<8);
 		} else {
 			PlayDamageAnimation(DL_BLOOD+damagelevel);
 		}
@@ -3204,10 +3297,10 @@ int Actor::Damage(int damage, int damagetype, Scriptable *hitter, int modtype)
 
 	if (InParty) {
 		if (chp<(signed) Modified[IE_MAXHITPOINTS]/10) {
-			core->Autopause(AP_WOUNDED);
+			core->Autopause(AP_WOUNDED, this);
 		}
 		if (damage>0) {
-			core->Autopause(AP_HIT);
+			core->Autopause(AP_HIT, this);
 			core->SetEventFlag(EF_PORTRAIT);
 		}
 	}
@@ -3358,10 +3451,12 @@ void Actor::PlayHitSound(DataFileMgr *resdata, int damagetype, bool suffix)
 void Actor::DumpMaxValues()
 {
 	int symbol = core->LoadSymbol( "stats" );
-	SymbolMgr *sym = core->GetSymbol( symbol );
+	if (symbol !=-1) {
+		SymbolMgr *sym = core->GetSymbol( symbol );
 
-	for(int i=0;i<MAX_STATS;i++) {
-		print("%d (%s) %d\n", i, sym->GetValue(i), maximum_values[i]);
+		for(int i=0;i<MAX_STATS;i++) {
+			print("%d (%s) %d\n", i, sym->GetValue(i), maximum_values[i]);
+		}
 	}
 }
 #endif
@@ -3383,6 +3478,7 @@ void Actor::DebugDump()
 	print( "Dialog:     %.8s\n", Dialog );
 	print( "Global ID:  %d   PartySlot: %d\n", GetGlobalID(), InParty);
 	print( "Script name:%.32s    Current action: %d\n", scriptName, CurrentAction ? CurrentAction->actionID : -1);
+	print( "Int. Flags: 0x%x ", InternalFlags);
 	print( "TalkCount:  %d   ", TalkCount );
 	print( "Allegiance: %d   current allegiance:%d\n", BaseStats[IE_EA], Modified[IE_EA] );
 	print( "Class:      %d   current class:%d\n", BaseStats[IE_CLASS], Modified[IE_CLASS] );
@@ -3503,33 +3599,32 @@ ieDword Actor::GetXPLevel(int modified) const
 		stats = BaseStats;
 	}
 
-	float classcount = 0;
+	int clscount = 0;
 	float average = 0;
 	if (core->HasFeature(GF_LEVELSLOT_PER_CLASS)) {
 		// iwd2
 		for (int i=0; i < 11; i++) {
-			if (stats[levelslotsiwd2[i]] > 0) classcount++;
+			if (stats[levelslotsiwd2[i]] > 0) clscount++;
 		}
-		average = stats[IE_CLASSLEVELSUM] / classcount + 0.5;
-	}
-	else {
+		average = stats[IE_CLASSLEVELSUM] / (float) clscount + 0.5;
+	} else {
 		int levels[3]={stats[IE_LEVEL], stats[IE_LEVEL2], stats[IE_LEVEL3]};
 		average = levels[0];
-		classcount = 1;
+		clscount = 1;
 		if (IsDualClassed()) {
 			// dualclassed
 			if (levels[1] > 0) {
-				classcount++;
+				clscount++;
 				average += levels[1];
 			}
 		}
 		else if (IsMultiClassed()) {
-				//classcount is the number of on bits in the MULTI field
-				classcount = bitcount (multiclass);
-				for (int i=1; i<classcount; i++)
+				//clscount is the number of on bits in the MULTI field
+				clscount = bitcount (multiclass);
+				for (int i=1; i<clscount; i++)
 					average += levels[i];
 		} //else single classed
-		average = average / classcount + 0.5;
+		average = average / (float) clscount + 0.5;
 	}
 	return ieDword(average);
 }
@@ -3537,7 +3632,7 @@ ieDword Actor::GetXPLevel(int modified) const
 // returns the guessed caster level by passed spell type
 // FIXME: add iwd2 support (should be more precise, as there are more class types)
 // FIXME: add more logic for cross-type kits (like avengers)?
-ieDword Actor::GetBaseCasterLevel(int spelltype) const
+ieDword Actor::GetBaseCasterLevel(int spelltype, int flags) const
 {
 	int level = 0;
 
@@ -3556,7 +3651,7 @@ ieDword Actor::GetBaseCasterLevel(int spelltype) const
 		break;
 	}
 	// if nothing was found, use the average level
-	if (!level) level = GetXPLevel(true);
+	if (!level && !flags) level = GetXPLevel(true);
 
 	return level;
 }
@@ -3601,6 +3696,17 @@ ieDword Actor::GetCasterLevel(int spelltype)
 {
 	int level = GetBaseCasterLevel(spelltype);
 	return level + CastingLevelBonus(level, spelltype);
+}
+
+// this works properly with disabled dualclassed actors, since it ends up in GetClassLevel
+ieDword Actor::GetAnyActiveCasterLevel() const
+{
+	int strict = 1;
+	// only player classes will have levels in the correct slots
+	if (BaseStats[IE_CLASS] == 0 || BaseStats[IE_CLASS] >= (ieDword) classcount) {
+		strict = 0;
+	}
+	return GetBaseCasterLevel(IE_SPL_PRIEST, strict) + GetBaseCasterLevel(IE_SPL_WIZARD, strict);
 }
 
 /** maybe this would be more useful if we calculate with the strength too
@@ -3697,12 +3803,12 @@ void Actor::Resurrect()
 	ClearActions();
 	ClearPath();
 	SetStance(IE_ANI_EMERGE);
+	Game *game = core->GetGame();
 	//readjust death variable on resurrection
 	if (core->HasFeature(GF_HAS_KAPUTZ) && (AppearanceFlags&APP_DEATHVAR)) {
 		ieVariable DeathVar;
 
 		snprintf(DeathVar,sizeof(ieVariable),"%s_DEAD",scriptName);
-		Game *game=core->GetGame();
 		ieDword value=0;
 
 		game->kaputz->Lookup(DeathVar, value);
@@ -3710,6 +3816,7 @@ void Actor::Resurrect()
 			game->kaputz->SetAt(DeathVar, value-1);
 		}
 	}
+	ResetCommentTime();
 	//clear effects?
 }
 
@@ -3718,6 +3825,16 @@ static EffectRef fx_cure_hold_state_ref = { "Cure:Hold", -1 };
 static EffectRef fx_cure_stun_state_ref = { "Cure:Stun", -1 };
 static EffectRef fx_remove_portrait_icon_ref = { "Icon:Remove", -1 };
 static EffectRef fx_unpause_caster_ref = { "Cure:CasterHold", -1 };
+
+const char *GetVarName(const char *table, int value)
+{
+	int symbol = core->LoadSymbol( table );
+	if (symbol!=-1) {
+		Holder<SymbolMgr> sym = core->GetSymbol( symbol );
+		return sym->GetValue( value );
+	}
+	return NULL;
+}
 
 void Actor::Die(Scriptable *killer)
 {
@@ -3778,7 +3895,7 @@ void Actor::Die(Scriptable *killer)
 
 	if (InParty) {
 		game->PartyMemberDied(this);
-		core->Autopause(AP_DEAD);
+		core->Autopause(AP_DEAD, this);
 	} else {
 		if (act) {
 			if (act->InParty) {
@@ -3850,6 +3967,24 @@ void Actor::Die(Scriptable *killer)
 			game->locals->SetAt(KillVar, 1, nocreate);
 		}
 	}
+
+	if (core->HasFeature(GF_HAS_KAPUTZ) && (AppearanceFlags&APP_FACTION) ) {
+		value = 0;
+		const char *varname = GetVarName("faction", BaseStats[IE_FACTION]);
+		if (varname && varname[0]) {
+			game->kaputz->Lookup(varname, value);
+			game->kaputz->SetAt(varname, value+1, nocreate);
+		}
+	}
+	if (core->HasFeature(GF_HAS_KAPUTZ) && (AppearanceFlags&APP_TEAM) ) {
+		value = 0;
+		const char *varname = GetVarName("team", BaseStats[IE_TEAM]);
+		if (varname && varname[0]) {
+			game->kaputz->Lookup(varname, value);
+			game->kaputz->SetAt(varname, value+1, nocreate);
+		}
+	}
+
 	if (IncKillVar[0]) {
 		value = 0;
 		game->locals->Lookup(IncKillVar, value);
@@ -4183,7 +4318,7 @@ int Actor::GetHpAdjustment(int multiplier)
 	int val;
 
 	// only player classes get this bonus
-	if (BaseStats[IE_CLASS] == 0 || BaseStats[IE_CLASS] > (ieDword)classcount) {
+	if (BaseStats[IE_CLASS] == 0 || BaseStats[IE_CLASS] >= (ieDword) classcount) {
 		return 0;
 	}
 
@@ -4262,7 +4397,7 @@ bool Actor::ValidTarget(int ga_flags) const
 		break;
 	case GA_TALK:
 		//can't talk to dead
-		if (Modified[IE_STATE_ID] & STATE_CANTLISTEN) return false;
+		if (Modified[IE_STATE_ID] & (STATE_CANTLISTEN^STATE_SLEEP)) return false;
 		//can't talk to hostile
 		if (Modified[IE_EA]>=EA_EVILCUTOFF) return false;
 		break;
@@ -4593,7 +4728,10 @@ int Actor::GetAttackStyle() const
 void Actor::AttackedBy( Actor *attacker)
 {
 	AddTrigger(TriggerEntry(trigger_attackedby, attacker->GetGlobalID()));
-	LastAttacker = attacker->GetGlobalID();
+	if (attacker->GetStat(IE_EA) != EA_PC && Modified[IE_EA] != EA_PC) {
+		LastAttacker = attacker->GetGlobalID();
+	}
+	core->Autopause(AP_ATTACKED, this);
 }
 
 void Actor::SetTarget( Scriptable *target)
@@ -4608,7 +4746,7 @@ void Actor::StopAttack()
 	secondround = 0;
 	//InternalFlags|=IF_TARGETGONE; //this is for the trigger!
 	if (InParty) {
-		core->Autopause(AP_NOTARGET);
+		core->Autopause(AP_NOTARGET, this);
 	}
 }
 
@@ -4670,7 +4808,7 @@ void Actor::InitRound(ieDword gameTime)
 
 	// this might not be the right place, but let's give it a go
 	if (attacksperround && InParty) {
-		core->Autopause(AP_ENDROUND);
+		core->Autopause(AP_ENDROUND, this);
 	}
 }
 
@@ -4678,7 +4816,7 @@ bool Actor::GetCombatDetails(int &tohit, bool leftorright, WeaponInfo& wi, ITMEx
 		int &DamageBonus, int &speed, int &CriticalBonus, int &style, Actor *target) const
 {
 	tohit = GetStat(IE_TOHIT);
-	speed = -GetStat(IE_PHYSICALSPEED);
+	speed = -(int)GetStat(IE_PHYSICALSPEED);
 	ieDword dualwielding = IsDualWielding();
 	header = GetWeapon(wi, leftorright && dualwielding);
 	if (!header) {
@@ -4744,7 +4882,8 @@ bool Actor::GetCombatDetails(int &tohit, bool leftorright, WeaponInfo& wi, ITMEx
 	// add non-proficiency penalty, which is missing from the table
 	if (stars == 0) {
 		ieDword clss = BaseStats[IE_CLASS];
-		if (clss <= (ieDword) classcount) {
+		//Is it a PC class?
+		if (clss < (ieDword) classcount) {
 			THAC0Bonus -= defaultprof[clss];
 		} else {
 			//it is not clear what is the penalty for non player classes
@@ -4797,7 +4936,11 @@ bool Actor::GetCombatDetails(int &tohit, bool leftorright, WeaponInfo& wi, ITMEx
 
 	//pst increased critical hits
 	if (pstflags && (Modified[IE_STATE_ID]&STATE_CRIT_ENH)) {
-		CriticalBonus++;
+		CriticalBonus--;
+	}
+	//iwd2 increased critical hit chance
+	if (core->HasFeature(GF_3ED_RULES) && HasFeat(FEAT_IMPROVED_CRITICAL)) {
+		CriticalBonus--;
 	}
 	return true;
 }
@@ -4933,6 +5076,7 @@ int Actor::GetDefense(int DamageType, Actor *attacker) const
 	return defense;
 }
 
+static EffectRef fx_puppetmarker_ref = { "PuppetMarker", -1 };
 
 void Actor::PerformAttack(ieDword gameTime)
 {
@@ -5066,8 +5210,31 @@ void Actor::PerformAttack(ieDword gameTime)
 		print("Left: %d | ", attackcount);
 		print("Next: %d ", nextattack);
 	}
+	if (fxqueue.HasEffectWithParam(fx_puppetmarker_ref, 1) || fxqueue.HasEffectWithParam(fx_puppetmarker_ref, 2)) { // illusions can't hit
+		ResetState();
+		printBracket("Missed", LIGHT_RED);
+		print("\n");
+		return;
+	}
 
-	int roll = LuckyRoll(1, ATTACKROLL, LR_CRITICAL);
+	// iwd2 rerolls to check for criticals (cf. manual page 45) - the second roll just needs to hit; on miss, it degrades to a normal hit
+	int roll = LuckyRoll(1, ATTACKROLL, 0, LR_CRITICAL);
+	int criticalroll = roll + (int) GetStat(IE_CRITICALHITBONUS) - CriticalBonus;
+	if (core->HasFeature(GF_3ED_RULES)) {
+		int ThreatRangeMin = ATTACKROLL; // FIXME: this is just the default
+		if (header && (header->RechargeFlags&IE_ITEM_KEEN)) {
+			ThreatRangeMin--; // FIXME: should really double the threat range
+		}
+		ThreatRangeMin -= ((int) GetStat(IE_CRITICALHITBONUS) - CriticalBonus); // TODO: move to GetCombatDetails
+		criticalroll = LuckyRoll(1, ATTACKROLL, 0, LR_CRITICAL);
+		if (criticalroll < ThreatRangeMin) {
+			// make it an ordinary hit
+			criticalroll = 1;
+		} else {
+			// make sure it will be a critical hit
+			criticalroll = ATTACKROLL;
+		}
+	}
 	if (roll==1) {
 		//critical failure
 		printBracket("Critical Miss", RED);
@@ -5091,7 +5258,6 @@ void Actor::PerformAttack(ieDword gameTime)
 	//modify defense with damage type
 	ieDword damagetype = hittingheader->DamageType;
 	int damage = 0;
-	int resisted = 0;
 
 	if (hittingheader->DiceThrown<256) {
 		if (Modified[IE_LUCK] > Modified[IE_DAMAGELUCK]) {
@@ -5099,20 +5265,17 @@ void Actor::PerformAttack(ieDword gameTime)
 		} else {
 			damage += LuckyRoll(hittingheader->DiceThrown, hittingheader->DiceSides, DamageBonus, LR_DAMAGELUCK);
 		}
-		print("| Damage %dd%d%+d = %d ",hittingheader->DiceThrown, hittingheader->DiceSides, DamageBonus, damage);
 	} else {
-		print("| No Damage");
 		damage = 0;
 	}
 
-	if (roll >= (ATTACKROLL - (int) GetStat(IE_CRITICALHITBONUS) - CriticalBonus)) {
+	if (criticalroll >= ATTACKROLL) {
 		//critical success
 		printBracket("Critical Hit", GREEN);
 		print("\n");
 		displaymsg->DisplayConstantStringName(STR_CRITICAL_HIT, DMC_WHITE, this);
 		DisplayStringCore(this, VB_CRITHIT, DS_CONSOLE|DS_CONST );
-		target->ModifyDamage (this, damage, resisted, weapon_damagetype[damagetype], &wi, true);
-		UseItem(wi.slot, wi.wflags&WEAPON_RANGED?-2:-1, target, 0, damage);
+		UseItem(wi.slot, wi.wflags&WEAPON_RANGED?-2:-1, target, UI_CRITICAL, damage);
 		ResetState();
 
 		return;
@@ -5145,7 +5308,6 @@ void Actor::PerformAttack(ieDword gameTime)
 	}
 	printBracket("Hit", GREEN);
 	print("\n");
-	target->ModifyDamage (this, damage, resisted, weapon_damagetype[damagetype], &wi, false);
 	UseItem(wi.slot, wi.wflags&WEAPON_RANGED?-2:-1, target, 0, damage);
 	ResetState();
 }
@@ -5305,7 +5467,10 @@ void Actor::ModifyDamage(Scriptable *hitter, int &damage, int &resisted, int dam
 			//a critical surely raises the morale?
 			//only if it is successful
 			NewBase(IE_MORALE, 1, MOD_ADDITIVE);
-			damage <<=1; //critical damage is always double?
+			// TODO: critical damage is always double, except for iwd2 where it is arbitrary (the number after the threat range)
+			// the manual states that many weapons x3, so we need to check if it is hardcoded or find
+			// the fields used for both the threat range and the multiplier
+			damage <<=1;
 			core->timer->SetScreenShake(16,16,8);
 		}
 	}
@@ -5404,6 +5569,12 @@ void Actor::SetColor( ieDword idx, ieDword grd)
 	if (index>6) {
 		return;
 	}
+
+	//Don't modify the modified stats if the colors were locked (for this ai cycle)
+	if (anims->lockPalette) {
+		return;
+	}
+
 	if (shift == 15) {
 		// put gradient in all four bytes of value
 		value = gradient;
@@ -5554,6 +5725,7 @@ void Actor::WalkTo(const Point &Des, ieDword flags, int MinDistance)
 		return;
 	}
 	SetRunFlags(flags);
+	ResetCommentTime();
 	// is this true???
 	if (Des.x==-2 && Des.y==-2) {
 		Point p((ieWord) Modified[IE_SAVEDXPOS], (ieWord) Modified[IE_SAVEDYPOS] );
@@ -5738,7 +5910,7 @@ bool Actor::ShouldDrawCircle()
 
 	int State = Modified[IE_STATE_ID];
 
-	if (State&STATE_DEAD || InternalFlags&IF_JUSTDIED) {
+	if ((State&STATE_DEAD) || (InternalFlags&IF_REALLYDIED)) {
 		return false;
 	}
 
@@ -6115,6 +6287,8 @@ void Actor::GetSoundFrom2DA(ieResRef Sound, unsigned int index) const
 	strnlwrcpy(Sound, tab->QueryField (index, col), 8);
 }
 
+//Get the monster sound from a global .ini file.
+//It is ResData.ini in PST and Sounds.ini in IWD/HoW
 void Actor::GetSoundFromINI(ieResRef Sound, unsigned int index) const
 {
 	const char *resource = "";
@@ -6127,15 +6301,19 @@ void Actor::GetSoundFromINI(ieResRef Sound, unsigned int index) const
 
 	switch(index) {
 		case VB_ATTACK:
-			resource = core->GetResDataINI()->GetKeyAsString(section, "at1sound","");
+			resource = core->GetResDataINI()->GetKeyAsString(section, IWDSound?"att1":"at1sound","");
 			break;
 		case VB_DAMAGE:
-			resource = core->GetResDataINI()->GetKeyAsString(section, "hitsound","");
+			resource = core->GetResDataINI()->GetKeyAsString(section, IWDSound?"damage":"hitsound","");
 			break;
 		case VB_DIE:
-			resource = core->GetResDataINI()->GetKeyAsString(section, "dfbsound","");
+			resource = core->GetResDataINI()->GetKeyAsString(section, IWDSound?"death":"dfbsound","");
 			break;
 		case VB_SELECT:
+			//this isn't in PST, apparently
+			if (IWDSound) {
+				resource = core->GetResDataINI()->GetKeyAsString(section, "selected","");
+			}
 			break;
 	}
 	int count = CountElements(resource,',');
@@ -6410,32 +6588,39 @@ int Actor::RestoreSpellLevel(ieDword maxlevel, ieDword type)
 //replenishes spells, cures fatigue
 void Actor::Rest(int hours)
 {
-	if (hours) {
+	// this is stored in reversed order (negative malus, positive bonus)
+	int fatigueBonus = - core->GetConstitutionBonus(STAT_CON_FATIGUE, Modified[IE_CON]);
+	if (hours < 8) {
 		//do remove effects
 		int remaining = hours*10;
 		//removes hours*10 fatigue points
-		NewStat (IE_FATIGUE, -remaining, MOD_ADDITIVE);
+		if (remaining < (signed)Modified[IE_FATIGUE]) {
+			NewStat (IE_FATIGUE, -remaining, MOD_ADDITIVE);
+		} else {
+			NewStat (IE_FATIGUE, fatigueBonus, MOD_ABSOLUTE);
+		}
 		NewStat (IE_INTOXICATION, -remaining, MOD_ADDITIVE);
 		//restore hours*10 spell levels
 		//rememorization starts with the lower spell levels?
 		inventory.ChargeAllItems (remaining);
-		for (int level = 1; level<16; level++) {
-			if (level<remaining) {
-				break;
-			}
-			while (remaining>0) {
-				remaining -= RestoreSpellLevel(level,0);
+		int level = 1;
+		int memorizedSpell = 0;
+		while (remaining > 0 && level < 16)
+		{
+			memorizedSpell = RestoreSpellLevel(level, -1);
+			remaining -= memorizedSpell;
+			if (memorizedSpell == 0)
+			{
+				level += 1;
 			}
 		}
 	} else {
-		SetBase (IE_FATIGUE, - core->GetConstitutionBonus(STAT_CON_FATIGUE, Modified[IE_CON]));
+		SetBase (IE_FATIGUE, fatigueBonus);
 		SetBase (IE_INTOXICATION, 0);
 		inventory.ChargeAllItems (0);
 		spellbook.ChargeAllSpells ();
 	}
-	Game *game = core->GetGame();
-	nextBored = game->GameTime + core->Roll(1,30,bored_time);
-	nextComment = game->GameTime + core->Roll(5,1000,bored_time/2);
+	ResetCommentTime();
 }
 
 //returns the actual slot from the quickslot
@@ -6505,6 +6690,10 @@ bool Actor::UseItemPoint(ieDword slot, ieDword header, const Point &target, ieDw
 	CREItem *item = inventory.GetSlotItem(slot);
 	if (!item)
 		return false;
+	// HACK: disable use when stunned (remove if stunned/petrified/etc actors stop running scripts)
+	if (Immobile()) {
+		return false;
+	}
 
 	ieResRef tmpresref;
 	strnuprcpy(tmpresref, item->ItemResRef, sizeof(ieResRef)-1);
@@ -6519,6 +6708,7 @@ bool Actor::UseItemPoint(ieDword slot, ieDword header, const Point &target, ieDw
 	Projectile *pro = itm->GetProjectile(this, header, target, slot, flags&UI_MISS);
 	ChargeItem(slot, header, item, itm, flags&UI_SILENT);
 	gamedata->FreeItem(itm,tmpresref, false);
+	ResetCommentTime();
 	if (pro) {
 		pro->SetCaster(GetGlobalID(), ITEM_CASTERLEVEL);
 		GetCurrentArea()->AddProjectile(pro, Pos, target);
@@ -6535,6 +6725,10 @@ bool Actor::UseItem(ieDword slot, ieDword header, Scriptable* target, ieDword fl
 {
 	if (target->Type!=ST_ACTOR) {
 		return UseItemPoint(slot, header, target->Pos, flags);
+	}
+	// HACK: disable use when stunned (remove if stunned/petrified/etc actors stop running scripts)
+	if (Immobile()) {
+		return false;
 	}
 
 	Actor *tar = (Actor *) target;
@@ -6555,6 +6749,7 @@ bool Actor::UseItem(ieDword slot, ieDword header, Scriptable* target, ieDword fl
 	Projectile *pro = itm->GetProjectile(this, header, target->Pos, slot, flags&UI_MISS);
 	ChargeItem(slot, header, item, itm, flags&UI_SILENT);
 	gamedata->FreeItem(itm,tmpresref, false);
+	ResetCommentTime();
 	if (pro) {
 		//ieDword is unsigned!!
 		pro->SetCaster(GetGlobalID(), ITEM_CASTERLEVEL);
@@ -6565,6 +6760,11 @@ bool Actor::UseItem(ieDword slot, ieDword header, Scriptable* target, ieDword fl
 			AttackEffect->Projectile = which->ProjectileAnimation;
 			AttackEffect->Target = FX_TARGET_PRESET;
 			AttackEffect->Parameter3 = 1;
+			if (pstflags) {
+				AttackEffect->IsVariable = GetCriticalType();
+			} else {
+				AttackEffect->IsVariable = flags&UI_CRITICAL;
+			}
 			pro->GetEffects()->AddEffect(AttackEffect, true);
 			if (ranged)
 				fxqueue.AddWeaponEffects(pro->GetEffects(), fx_ranged_ref);
@@ -7181,7 +7381,7 @@ Actor *Actor::CopySelf(bool mislead) const
 
 	area->AddActor(newActor);
 	newActor->SetPosition( Pos, CC_CHECK_IMPASSABLE, 0 );
-	newActor->SetOrientation(GetOrientation(),0);
+	newActor->SetOrientation(GetOrientation(), false);
 	newActor->SetStance( IE_ANI_READY );
 
 	//and apply them
@@ -7293,6 +7493,8 @@ void Actor::UseExit(ieDword exitID) {
 		InternalFlags|=IF_USEEXIT;
 	} else {
 		InternalFlags&=~IF_USEEXIT;
+		UsedExit = LastExit;
+		memcpy(LastArea, Area, 8);
 	}
 	LastExit = exitID;
 }
@@ -7407,6 +7609,7 @@ void Actor::ResetState()
 	CureInvisibility();
 	CureSanctuary();
 	SetModal(MS_NONE);
+	ResetCommentTime();
 }
 
 // doesn't check the range, but only that the azimuth and the target
@@ -7607,4 +7810,11 @@ bool Actor::IsPartyMember() const
 {
 	if (Modified[IE_EA]<=EA_FAMILIAR) return true;
 	return InParty>0;
+}
+
+void Actor::ResetCommentTime()
+{
+	Game *game = core->GetGame();
+	nextBored = game->GameTime + core->Roll(1, 30, bored_time);
+	nextComment = game->GameTime + core->Roll(5, 1000, bored_time/2);
 }

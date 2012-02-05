@@ -213,6 +213,9 @@ def OpenFloatMenuWindow ():
 
 def UpdateFloatMenuWindow ():
 	Window = FloatMenuWindow
+	# this enables the use of hotkeys without the window being open
+	if not FloatMenuWindow:
+		return
 
 	pc = GemRB.GameGetFirstSelectedPC ()
 
@@ -420,6 +423,21 @@ def UpdateFloatMenuSpell (pc, i):
 		Button.SetText ('')
 		Button.SetTooltip ('')
 		Button.SetState (IE_GUI_BUTTON_DISABLED)
+	return
+
+def FloatMenuSelectPreviousPC ():
+	sel = GemRB.GameGetFirstSelectedPC ()
+	if sel == 0:
+		GUICommon.OpenFloatMenuWindow ()
+		return
+
+	previous = sel % GemRB.GetPartySize () - 1
+	if previous == -1:
+		previous = 1
+	elif previous == 0:
+		previous = GemRB.GetPartySize ()
+	GemRB.GameSelectPC (previous, 1, SELECT_REPLACE)
+	# NOTE: it invokes FloatMenuSelectAnotherPC() through selection change handler
 	return
 
 def FloatMenuSelectNextPC ():

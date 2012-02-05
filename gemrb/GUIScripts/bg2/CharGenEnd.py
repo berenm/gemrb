@@ -19,6 +19,7 @@
 # character generation end
 import GemRB
 import GUICommon
+import Spellbook
 import CommonTables
 import LUCommon
 from GUIDefines import *
@@ -61,7 +62,7 @@ def OnLoad():
 				if CommonTables.ClassSkills.GetValue (IsMulti[i+1], 2, 0) != "*":
 					index = i
 					break
-		GUICommon.SetupSpellLevels(MyChar, TableName, IE_SPELL_TYPE_WIZARD, Levels[index])
+		Spellbook.SetupSpellLevels(MyChar, TableName, IE_SPELL_TYPE_WIZARD, Levels[index])
 
 	# apply class/kit abilities
 	KitIndex = GUICommon.GetKitIndex (MyChar)
@@ -110,8 +111,11 @@ def OnLoad():
 	GemRB.FillPlayerInfo (MyChar, LargePortrait, SmallPortrait)
 
 	if GUICommon.GameIsTOB():
-		# add the starting inventory for tob
-		GiveEquipment(MyChar, ClassName, KitIndex)
+		# will also add the starting inventory for tob
+		GemRB.GameSetExpansion (4)
+		# no torture, let's refresh all the spells, at least for sorcerers
+		# TODO: autopick memorisations for mages? Did they have a memorisation choice step like in bg1?
+		GemRB.ChargeSpells (MyChar)
 
 	playmode = GemRB.GetVar ("PlayMode")
 	if playmode >=0:

@@ -566,9 +566,6 @@ void GameScript::MoveToExpansion(Scriptable* Sender, Action* parameters)
 {
 	Game *game = core->GetGame();
 
-	if (!parameters->int0Parameter) {
-		parameters->int0Parameter = 5;
-	}
 	game->SetExpansion(parameters->int0Parameter);
 	Sender->ReleaseCurrentAction();
 }
@@ -580,12 +577,14 @@ void GameScript::ExitPocketPlane(Scriptable* /*Sender*/, Action* /*parameters*/)
 	for (int i = 0; i < game->GetPartySize(false); i++) {
 		Actor* act = game->GetPC( i, false );
 		if (act) {
+			GAMLocationEntry *gle;
 			if (game->GetPlaneLocationCount() <= (unsigned int)i) {
-				// what are we meant to do here?
-				print("argh, couldn't restore party member %d!", i + 1);
-				continue;
+				// no location, meaning the actor joined the party after the save
+				// reuse the last valid location
+				gle = game->GetPlaneLocationEntry(game->GetPlaneLocationCount()-1);
+			} else {
+				gle = game->GetPlaneLocationEntry(i);
 			}
-			GAMLocationEntry *gle = game->GetPlaneLocationEntry(i);
 			MoveBetweenAreasCore(act, gle->AreaResRef, gle->Pos, -1, true);
 		}
 	}
@@ -1330,12 +1329,14 @@ void GameScript::RestorePartyLocation(Scriptable* /*Sender*/, Action* /*paramete
 	for (int i = 0; i < game->GetPartySize(false); i++) {
 		Actor* act = game->GetPC( i, false );
 		if (act) {
+			GAMLocationEntry *gle;
 			if (game->GetSavedLocationCount() <= (unsigned int)i) {
-				// what are we meant to do here?
-				print("argh, couldn't restore party member %d!", i + 1);
-				continue;
+				// no location, meaning the actor joined the party after the save
+				// reuse the last valid location
+				gle = game->GetSavedLocationEntry(game->GetSavedLocationCount()-1);
+			} else {
+				gle = game->GetSavedLocationEntry(i);
 			}
-			GAMLocationEntry *gle = game->GetSavedLocationEntry(i);
 			MoveBetweenAreasCore(act, gle->AreaResRef, gle->Pos, -1, true);
 		}
 	}
@@ -1989,7 +1990,7 @@ void GameScript::PlaySequenceTimed(Scriptable* Sender, Action* parameters)
 	}
 	Actor* actor = ( Actor* ) tar;
 	actor->SetStance( parameters->int0Parameter );
-	int delay = parameters->int1Parameter || 1;
+	int delay = parameters->int1Parameter;
 	actor->SetWait( delay );
 }
 
@@ -2991,8 +2992,11 @@ void GameScript::ForceLeaveAreaLUA(Scriptable* Sender, Action* parameters)
 		return;
 	}
 	Actor* actor = ( Actor* ) tar;
-	//the LoadMos ResRef may be empty
-	strncpy(core->GetGame()->LoadMos, parameters->string1Parameter,8);
+	//the LoadMos ResRef may be empty, don't overwrite it if there is one set (textscreens may do this)
+	if (parameters->string1Parameter[0]) {
+		strnlwrcpy(core->GetGame()->LoadMos, parameters->string1Parameter, sizeof(ieResRef)-1);
+	}
+	//strncpy(core->GetGame()->LoadMos, parameters->string1Parameter,8);
 	MoveBetweenAreasCore( actor, parameters->string0Parameter, parameters->pointParameter, parameters->int0Parameter, true);
 }
 
@@ -3003,7 +3007,10 @@ void GameScript::LeaveAreaLUA(Scriptable* Sender, Action* parameters)
 	}
 	Actor* actor = ( Actor* ) Sender;
 	//the LoadMos ResRef may be empty
-	strncpy(core->GetGame()->LoadMos, parameters->string1Parameter,8);
+	if (parameters->string1Parameter[0]) {
+		strnlwrcpy(core->GetGame()->LoadMos, parameters->string1Parameter, sizeof(ieResRef)-1);
+	}
+	//strncpy(core->GetGame()->LoadMos, parameters->string1Parameter,8);
 	MoveBetweenAreasCore( actor, parameters->string0Parameter, parameters->pointParameter, parameters->int0Parameter, true);
 }
 
@@ -3015,7 +3022,10 @@ void GameScript::LeaveAreaLUAEntry(Scriptable* Sender, Action* parameters)
 		return;
 	}
 	Game *game = core->GetGame();
-	strncpy(game->LoadMos, parameters->string1Parameter,8);
+	if (parameters->string1Parameter[0]) {
+		strnlwrcpy(game->LoadMos, parameters->string1Parameter, sizeof(ieResRef)-1);
+	}
+	//strncpy(game->LoadMos, parameters->string1Parameter,8);
 	Point p = GetEntryPoint(parameters->string0Parameter, parameters->string1Parameter);
 	if (p.isempty()) {
 		Sender->ReleaseCurrentAction();
@@ -3033,7 +3043,10 @@ void GameScript::LeaveAreaLUAPanic(Scriptable* Sender, Action* parameters)
 		return;
 	}
 	Actor* actor = ( Actor* ) Sender;
-	strncpy(core->GetGame()->LoadMos, parameters->string1Parameter,8);
+	if (parameters->string1Parameter[0]) {
+		strnlwrcpy(core->GetGame()->LoadMos, parameters->string1Parameter, sizeof(ieResRef)-1);
+	}
+	//strncpy(core->GetGame()->LoadMos, parameters->string1Parameter,8);
 	MoveBetweenAreasCore( actor, parameters->string0Parameter, parameters->pointParameter, parameters->int0Parameter, true);
 }
 
@@ -3045,7 +3058,10 @@ void GameScript::LeaveAreaLUAPanicEntry(Scriptable* Sender, Action* parameters)
 		return;
 	}
 	Game *game = core->GetGame();
-	strncpy(game->LoadMos, parameters->string1Parameter,8);
+	if (parameters->string1Parameter[0]) {
+		strnlwrcpy(game->LoadMos, parameters->string1Parameter, sizeof(ieResRef)-1);
+	}
+	//strncpy(game->LoadMos, parameters->string1Parameter,8);
 	Point p = GetEntryPoint(parameters->string0Parameter, parameters->string1Parameter);
 	if (p.isempty()) {
 		Sender->ReleaseCurrentAction();
@@ -4324,8 +4340,7 @@ void GameScript::PickPockets(Scriptable *Sender, Action* parameters)
 		//noticed attempt
 		displaymsg->DisplayConstantString(STR_PICKPOCKET_FAIL, DMC_WHITE);
 		if (core->HasFeature(GF_STEAL_IS_ATTACK) ) {
-			tar->AddTrigger(TriggerEntry(trigger_attackedby, snd->GetGlobalID()));
-			tar->LastAttacker = snd->GetGlobalID(); // FIXME
+			scr->AttackedBy(snd);
 		} else {
 			//pickpocket failed trigger
 			tar->AddTrigger(TriggerEntry(trigger_pickpocketfailed, snd->GetGlobalID()));

@@ -114,8 +114,8 @@ def SetupMenuWindowControls (Window):
 
 	# AI
 	Button = Window.GetControl (4)
-	Button.SetTooltip (41631) # or 41646 Activate ...
-	#Button.SetEvent (IE_GUI_BUTTON_ON_PRESS, GUICommon.OpenFloatMenuWindow)
+	Button.SetEvent (IE_GUI_BUTTON_ON_PRESS, AIPress)
+	AIPress(toggle=0)
 
 	# (Un)Lock view on character
 	Button = Window.GetControl (0)
@@ -128,11 +128,33 @@ def SetupMenuWindowControls (Window):
 
 
 def OnLockViewPress ():
-	GemRB.GameControlSetScreenFlags (SF_CENTERONACTOR | SF_ALWAYSCENTER, OP_OR)
-	print "OnLockViewPress"
+	Button = OptionsWindow.GetControl (0)
+	GemRB.GameControlSetScreenFlags (SF_CENTERONACTOR | SF_ALWAYSCENTER, OP_XOR)
 
-def AIPress ():
-	print "AIPress"
+	# no way to get the screen flags
+	if OnLockViewPress.counter % 2:
+		# unlock
+		Button.SetTooltip (41648)
+	else:
+		# lock
+		Button.SetTooltip (41647)
+	OnLockViewPress.counter += 1
+
+OnLockViewPress.counter = 1
+
+def AIPress (toggle=1):
+	Button = OptionsWindow.GetControl (4)
+
+	if toggle:
+		GemRB.GameSetScreenFlags (GS_PARTYAI, OP_XOR)
+	AI = GemRB.GetMessageWindowSize () & GS_PARTYAI
+
+	if AI:
+		# disactivate
+		Button.SetTooltip (41631)
+	else:
+		# activate
+		Button.SetTooltip (41646)
 
 def TxtePress ():
 	print "TxtePress"
@@ -405,7 +427,7 @@ def PortraitButtonHPOnPress ():
 
 def StopAllOnPress ():
 	for i in GemRB.GetSelectedActors():
-		GemRB.ClearActions (i, 1)
+		GemRB.ClearActions (i)
 	return
 
 # Run by Game class when selection was changed
@@ -604,3 +626,6 @@ def EmptyControls ():
 
 def CheckLevelUp(pc):
 	GemRB.SetVar ("CheckLevelUp"+str(pc), LUCommon.CanLevelUp (pc))
+
+def ToggleAlwaysRun():
+	GemRB.GameControlToggleAlwaysRun()

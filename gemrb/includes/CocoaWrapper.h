@@ -17,20 +17,27 @@
  *
  *
  */
-#import <Availability.h>
-#import "exports.h"
-extern int GemRB_main(int argc, char *argv[]);
-#if TARGET_OS_IPHONE > 0
-__attribute__ ((visibility("default")))
-extern int SDL_main(int argc, char *argv[]);
-#elif TARGET_OS_MAC
+
+/*
+ !!!:
+ Because this file is shared between the CocoaWrapper object and plugins extending it we need to keep it
+ in the gemrb/includes directory.
+*/
+
 #import <Cocoa/Cocoa.h>
-__attribute__ ((visibility("default")))
-@interface CocoaWrapper : NSObject <NSApplicationDelegate>
+
+#import "exports.h"
+
+extern int GemRB_main(int argc, char *argv[]);
+
+GEM_EXPORT
+@interface CocoaWrapper : NSObject
+#if __MAC_OS_X_VERSION_MIN_REQUIRED > 1050
+<NSApplicationDelegate>
+#endif
 {
 }
 // Override these application delegate methods in plugin categories
 - (void)applicationWillTerminate:(NSNotification *)aNotification;
 - (NSApplicationTerminateReply)applicationShouldTerminate:(NSApplication *)sender;
 @end
-#endif
