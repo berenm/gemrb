@@ -37,7 +37,7 @@ Description: GemRB libraries
 
 Package: gemrb-doc
 Section: doc
-Architecture: any
+Architecture: all
 Depends: ${misc:Depends}
 Description: GemRB documentation
  GemRB is an open-source engine to run Baldur's Gate, Icewind Dale and
