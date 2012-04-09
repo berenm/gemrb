@@ -1,0 +1,25 @@
+From: Beren Minor <beren.minor+debian@gmail.com>
+Date: Sun, 5 Feb 2012 20:41:37 +0100
+Subject: DEBIAN: Added GemRB version number to gemrb_code library.
+
+---
+ gemrb/core/CMakeLists.txt |    3 +++
+ 1 file changed, 3 insertions(+)
+
+diff --git a/gemrb/core/CMakeLists.txt b/gemrb/core/CMakeLists.txt
+index 98d0c0e..11f8662 100644
+--- a/gemrb/core/CMakeLists.txt
++++ b/gemrb/core/CMakeLists.txt
+@@ -134,9 +134,12 @@ else (STATIC_LINK)
+ 	ENDIF(WIN32)
+ endif (STATIC_LINK)
+ 
++STRING(REGEX REPLACE "\\..*$" "" GEMRB_SOVERSION "${GEMRB_VERSION}")
+ SET_TARGET_PROPERTIES(gemrb_core PROPERTIES
+ 	COMPILE_DEFINITIONS
+ 	"PLUGINDIR=\"${PLUGIN_DIR}\";DATADIR=\"${DATA_DIR}\";SYSCONFDIR=\"${SYSCONF_DIR}\""
++	VERSION ${GEMRB_VERSION}
++	SOVERSION ${GEMRB_SOVERSION}
+ 	)
+ 
+ IF (APPLE)
