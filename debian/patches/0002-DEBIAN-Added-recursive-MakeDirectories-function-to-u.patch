@@ -1,0 +1,72 @@
+From: Beren Minor <beren.minor+git@gmail.com>
+Date: Sun, 5 Feb 2012 21:08:08 +0100
+Subject: DEBIAN: Added recursive MakeDirectories function to use with saved
+ games folder.
+
+---
+ gemrb/core/SaveGameIterator.cpp |    2 +-
+ gemrb/core/System/VFS.cpp       |   25 +++++++++++++++++++++++++
+ gemrb/core/System/VFS.h         |    1 +
+ 3 files changed, 27 insertions(+), 1 deletion(-)
+
+diff --git a/gemrb/core/SaveGameIterator.cpp b/gemrb/core/SaveGameIterator.cpp
+index a4dae9a..8b79b06 100644
+--- a/gemrb/core/SaveGameIterator.cpp
++++ b/gemrb/core/SaveGameIterator.cpp
+@@ -277,7 +277,7 @@ bool SaveGameIterator::RescanSaveGames()
+ 	DirectoryIterator dir(Path);
+ 	// create the save game directory at first access
+ 	if (!dir) {
+-		if (!MakeDirectory(Path)) {
++		if (!MakeDirectories(Path)) {
+ 			printMessage("SaveGameIterator", "Unable to create save game directory '%s'", RED, Path);
+ 			return false;
+ 		}
+diff --git a/gemrb/core/System/VFS.cpp b/gemrb/core/System/VFS.cpp
+index f275ae0..64687b7 100644
+--- a/gemrb/core/System/VFS.cpp
++++ b/gemrb/core/System/VFS.cpp
+@@ -357,6 +357,31 @@ void ExtractFileFromPath(char *file, const char *full_path)
+ 		strcpy(file, full_path);
+ }
+ 
++bool MakeDirectories(const char* path)
++{
++	char TempFilePath[_MAX_PATH] = "";
++	char Tokenized[_MAX_PATH];
++	strcpy(Tokenized, path);
++
++	char* Token = strtok(Tokenized, &PathDelimiter);
++	while(Token != NULL) {
++		if(TempFilePath[0] == 0) {
++			if(path[0] == PathDelimiter) {
++				TempFilePath[0] = PathDelimiter;
++				TempFilePath[1] = 0;
++			}
++			strcat(TempFilePath, Token);
++		} else
++			PathJoin(TempFilePath, TempFilePath, Token, NULL);
++
++		if(!MakeDirectory(TempFilePath))
++			return false;
++
++		Token = strtok(NULL, &PathDelimiter);
++	}
++	return true;
++}
++
+ bool MakeDirectory(const char* path)
+ {
+ #ifdef WIN32
+diff --git a/gemrb/core/System/VFS.h b/gemrb/core/System/VFS.h
+index 94e83d7..4e6b3bd 100644
+--- a/gemrb/core/System/VFS.h
++++ b/gemrb/core/System/VFS.h
+@@ -109,6 +109,7 @@ GEM_EXPORT void ExtractFileFromPath(char *file, const char *full_path);
+ 
+ GEM_EXPORT char* PathAppend (char* target, const char* name);
+ 
++GEM_EXPORT bool MakeDirectories(const char* path) WARN_UNUSED;
+ GEM_EXPORT bool MakeDirectory(const char* path) WARN_UNUSED;
+ 
+ class GEM_EXPORT DirectoryIterator {
