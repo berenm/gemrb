@@ -1,6 +1,6 @@
 From: Beren Minor <beren.minor+git@gmail.com>
 Date: Sun, 5 Feb 2012 21:08:08 +0100
-Subject: DEBIAN: Added recursive MakeDirectories function to use with saved
+Subject: DEBIAN: Add recursive MakeDirectories function to use with saved
  games folder.
 
 ---

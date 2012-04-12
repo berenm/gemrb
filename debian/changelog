@@ -1,3 +1,9 @@
+gemrb (0.7.0-2) unstable; urgency=low
+
+  * Fix some lintian warnings
+
+ -- Beren Minor <beren.minor+debian@gmail.com>  Thu, 12 Apr 2012 10:09:12 +0200
+
 gemrb (0.7.0-1) unstable; urgency=low
   * New features:
     - One can play through the whole Baldur's Gate saga
