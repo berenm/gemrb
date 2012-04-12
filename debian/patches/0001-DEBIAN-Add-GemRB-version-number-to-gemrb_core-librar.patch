@@ -1,6 +1,6 @@
 From: Beren Minor <beren.minor+debian@gmail.com>
 Date: Sun, 5 Feb 2012 20:41:37 +0100
-Subject: DEBIAN: Added GemRB version number to gemrb_code library.
+Subject: DEBIAN: Add GemRB version number to gemrb_core library.
 
 ---
  gemrb/core/CMakeLists.txt |    3 +++

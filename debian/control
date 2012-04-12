@@ -3,14 +3,14 @@ Section: games
 Priority: extra
 Maintainer: Beren Minor <beren.minor+debian@gmail.com>
 Build-Depends: debhelper (>= 8.0.0), cmake, python-dev, libsdl1.2-dev, libsdl-ttf2.0-dev, libsdl-mixer1.2-dev, libz-dev, libopenal-dev, libpng-dev, libogg-dev, libvorbis-dev
-Standards-Version: 3.9.2
+Standards-Version: 3.9.3
 Homepage: http://www.gemrb.org/
 Vcs-Git: git://github.com/berenm/gemrb.git
 Vcs-Browser: https://github.com/berenm/gemrb
 
 Package: gemrb
 Architecture: any
-Depends: ${shlibs:Depends}, ${misc:Depends}, python-support (>= 0.90), gemrb-data (=${binary:Version}), libgemrb (=${binary:Version})
+Depends: ${shlibs:Depends}, ${misc:Depends}, python-support (>= 0.90), gemrb-data (=${source:Version}), libgemrb (=${binary:Version})
 Description: Open-source engine to run Baldur's Gate, Icewind Dale and Planescape: Torment
  GemRB (Game Engine Made with preRendered Background) is a new implementation
  of the original Infinity Engine (the one of Baldur's Gate, Icewind Dale,
@@ -31,96 +31,150 @@ Description: Open-source engine to run Baldur's Gate, Icewind Dale and Planescap
 Package: libgemrb
 Architecture: any
 Depends: ${shlibs:Depends}, ${misc:Depends}
-Description: GemRB libraries
- GemRB is an open-source engine to run Baldur's Gate, Icewind Dale and
- Planescape: Torment.
+Description: Shared libraries and plugins for GemRB
+ GemRB (Game Engine Made with preRendered Background) is a new implementation
+ of the original Infinity Engine (the one of Baldur's Gate, Icewind Dale,
+ Planescape: Torment, ...) to Linux/Unix, MacOS X and Windows with some
+ enhancements.
+ .
+ This package contains GemRB core shared libraries and plugins.
+
 
 Package: gemrb-doc
 Section: doc
 Architecture: all
 Depends: ${misc:Depends}
-Description: GemRB documentation
- GemRB is an open-source engine to run Baldur's Gate, Icewind Dale and
- Planescape: Torment.
+Description: Documentation for GemRB
+ GemRB (Game Engine Made with preRendered Background) is a new implementation
+ of the original Infinity Engine (the one of Baldur's Gate, Icewind Dale,
+ Planescape: Torment, ...) to Linux/Unix, MacOS X and Windows with some
+ enhancements.
+ .
+ This package contains documentation about GemRB and how to write custom games.
 
 Package: gemrb-data
-Architecture: any
+Architecture: all
 Depends: ${misc:Depends}
-Description: GemRB data files
- GemRB is an open-source engine to run Baldur's Gate, Icewind Dale and
- Planescape: Torment.
+Description: Common data files for GemRB
+ GemRB (Game Engine Made with preRendered Background) is a new implementation
+ of the original Infinity Engine (the one of Baldur's Gate, Icewind Dale,
+ Planescape: Torment, ...) to Linux/Unix, MacOS X and Windows with some
+ enhancements.
+ .
+ This package contains data files used across all supported games.
 
 
 Package: gemrb-baldurs-gate-data
-Architecture: any
-Depends: ${misc:Depends}, gemrb-data (=${binary:Version})
+Architecture: all
+Depends: ${misc:Depends}, gemrb-data (=${source:Version})
 Description: GemRB data files for Baldur's Gate game
- GemRB is an open-source engine to run Baldur's Gate, Icewind Dale and
- Planescape: Torment.
+ GemRB (Game Engine Made with preRendered Background) is a new implementation
+ of the original Infinity Engine (the one of Baldur's Gate, Icewind Dale,
+ Planescape: Torment, ...) to Linux/Unix, MacOS X and Windows with some
+ enhancements.
+ .
+ This package contains data files for Baldur's Gate game.
 
 Package: gemrb-baldurs-gate
 Architecture: any
-Depends: ${misc:Depends}, gemrb (=${binary:Version}), gemrb-baldurs-gate-data (=${binary:Version})
+Depends: ${misc:Depends}, gemrb (=${binary:Version}), gemrb-baldurs-gate-data (=${source:Version})
 Description: GemRB binary and configuration for Baldur's Gate game
- GemRB is an open-source engine to run Baldur's Gate, Icewind Dale and
- Planescape: Torment.
+ GemRB (Game Engine Made with preRendered Background) is a new implementation
+ of the original Infinity Engine (the one of Baldur's Gate, Icewind Dale,
+ Planescape: Torment, ...) to Linux/Unix, MacOS X and Windows with some
+ enhancements.
+ .
+ This package contains configuration sample and binary for Baldur's Gate game.
 
 
 Package: gemrb-baldurs-gate-2-data
-Architecture: any
-Depends: ${misc:Depends}, gemrb-data (=${binary:Version})
+Architecture: all
+Depends: ${misc:Depends}, gemrb-data (=${source:Version})
 Description: GemRB data files for Baldur's Gate 2 game
- GemRB is an open-source engine to run Baldur's Gate, Icewind Dale and
- Planescape: Torment.
+ GemRB (Game Engine Made with preRendered Background) is a new implementation
+ of the original Infinity Engine (the one of Baldur's Gate, Icewind Dale,
+ Planescape: Torment, ...) to Linux/Unix, MacOS X and Windows with some
+ enhancements.
+ .
+ This package contains data files for Baldur's Gate 2 game.
 
 Package: gemrb-baldurs-gate-2
 Architecture: any
-Depends: ${misc:Depends}, gemrb (=${binary:Version}), gemrb-baldurs-gate-2-data (=${binary:Version})
+Depends: ${misc:Depends}, gemrb (=${binary:Version}), gemrb-baldurs-gate-2-data (=${source:Version})
 Description: GemRB binary and configuration for Baldur's Gate 2 game
- GemRB is an open-source engine to run Baldur's Gate, Icewind Dale and
- Planescape: Torment.
+ GemRB (Game Engine Made with preRendered Background) is a new implementation
+ of the original Infinity Engine (the one of Baldur's Gate, Icewind Dale,
+ Planescape: Torment, ...) to Linux/Unix, MacOS X and Windows with some
+ enhancements.
+ .
+ This package contains configuration sample and binary for Baldur's Gate 2 game.
 
 
 Package: gemrb-icewind-dale-data
-Architecture: any
-Depends: ${misc:Depends}, gemrb-data (=${binary:Version})
+Architecture: all
+Depends: ${misc:Depends}, gemrb-data (=${source:Version})
 Description: GemRB data files for Icewind Dale game
- GemRB is an open-source engine to run Baldur's Gate, Icewind Dale and
- Planescape: Torment.
+ GemRB (Game Engine Made with preRendered Background) is a new implementation
+ of the original Infinity Engine (the one of Baldur's Gate, Icewind Dale,
+ Planescape: Torment, ...) to Linux/Unix, MacOS X and Windows with some
+ enhancements.
+ .
+ This package contains data files for Icewind Dale game.
 
 Package: gemrb-icewind-dale
 Architecture: any
-Depends: ${misc:Depends}, gemrb (=${binary:Version}), gemrb-icewind-dale-data (=${binary:Version})
+Depends: ${misc:Depends}, gemrb (=${binary:Version}), gemrb-icewind-dale-data (=${source:Version})
 Description: GemRB binary and configuration for Icewind Dale game
- GemRB is an open-source engine to run Baldur's Gate, Icewind Dale and
- Planescape: Torment.
+ GemRB (Game Engine Made with preRendered Background) is a new implementation
+ of the original Infinity Engine (the one of Baldur's Gate, Icewind Dale,
+ Planescape: Torment, ...) to Linux/Unix, MacOS X and Windows with some
+ enhancements.
+ .
+ This package contains configuration sample and binary for Icewind Dale game.
 
 
 Package: gemrb-icewind-dale-2-data
-Architecture: any
-Depends: ${misc:Depends}, gemrb-data (=${binary:Version})
+Architecture: all
+Depends: ${misc:Depends}, gemrb-data (=${source:Version})
 Description: GemRB data files for Icewind Dale 2 game
- GemRB is an open-source engine to run Baldur's Gate, Icewind Dale and
- Planescape: Torment.
+ GemRB (Game Engine Made with preRendered Background) is a new implementation
+ of the original Infinity Engine (the one of Baldur's Gate, Icewind Dale,
+ Planescape: Torment, ...) to Linux/Unix, MacOS X and Windows with some
+ enhancements.
+ .
+ This package contains data files for Icewind Dale 2 game.
 
 Package: gemrb-icewind-dale-2
 Architecture: any
-Depends: ${misc:Depends}, gemrb (=${binary:Version}), gemrb-icewind-dale-2-data (=${binary:Version})
+Depends: ${misc:Depends}, gemrb (=${binary:Version}), gemrb-icewind-dale-2-data (=${source:Version})
 Description: GemRB binary and configuration for Icewind Dale 2 game
- GemRB is an open-source engine to run Baldur's Gate, Icewind Dale and
- Planescape: Torment.
+ GemRB (Game Engine Made with preRendered Background) is a new implementation
+ of the original Infinity Engine (the one of Baldur's Gate, Icewind Dale,
+ Planescape: Torment, ...) to Linux/Unix, MacOS X and Windows with some
+ enhancements.
+ .
+ This package contains configuration sample and binary for Icewind Dale 2 game.
 
 
 Package: gemrb-planescape-torment-data
-Architecture: any
-Depends: ${misc:Depends}, gemrb-data (=${binary:Version})
+Architecture: all
+Depends: ${misc:Depends}, gemrb-data (=${source:Version})
 Description: GemRB data files for Planescape: Torment game
- GemRB is an open-source engine to run Baldur's Gate, Icewind Dale and
- Planescape: Torment.
+ GemRB (Game Engine Made with preRendered Background) is a new implementation
+ of the original Infinity Engine (the one of Baldur's Gate, Icewind Dale,
+ Planescape: Torment, ...) to Linux/Unix, MacOS X and Windows with some
+ enhancements.
+ .
+ This package contains data files for Planescape: Torment game.
 
 Package: gemrb-planescape-torment
 Architecture: any
-Depends: ${misc:Depends}, gemrb (=${binary:Version}), gemrb-planescape-torment-data (=${binary:Version})
+Depends: ${misc:Depends}, gemrb (=${binary:Version}), gemrb-planescape-torment-data (=${source:Version})
 Description: GemRB binary and configuration for Planescape: Torment game
- GemRB is an open-source engine to run Baldur's Gate, Icewind Dale and
- Planescape: Torment.
+ GemRB (Game Engine Made with preRendered Background) is a new implementation
+ of the original Infinity Engine (the one of Baldur's Gate, Icewind Dale,
+ Planescape: Torment, ...) to Linux/Unix, MacOS X and Windows with some
+ enhancements.
+ .
+ This package contains configuration sample and binary for Planescape: Torment
+ game.
