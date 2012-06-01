@@ -15,5 +15,8 @@ override_dh_auto_install:
 	    ln -s gemrb.png  debian/tmp/usr/share/pixmaps/$${game}.png; \
 	done
 
+override_dh_strip:
+	dh_strip
+
 override_dh_builddeb:
 	dh_builddeb -- -Zxz
