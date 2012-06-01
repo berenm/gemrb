@@ -1,3 +1,10 @@
+gemrb (0.7.0-3) unstable; urgency=low
+
+  * Fix some more lintians warnings and some compilation issues
+    related to unistd.h.
+
+ -- Beren Minor <beren.minor+debian@gmail.com>  Fri, 01 Jun 2012 21:24:51 +0200
+
 gemrb (0.7.0-2) unstable; urgency=low
 
   * Fix some lintian warnings
