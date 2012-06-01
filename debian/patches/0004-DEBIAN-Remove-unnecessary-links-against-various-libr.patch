@@ -1,0 +1,51 @@
+From: Beren Minor <beren.minor+git@gmail.com>
+Date: Fri, 1 Jun 2012 21:19:34 +0200
+Subject: DEBIAN: Remove unnecessary links against various libraries.
+
+---
+ gemrb/CMakeLists.txt      |    9 ++++-----
+ gemrb/core/CMakeLists.txt |    4 ++++
+ 2 files changed, 8 insertions(+), 5 deletions(-)
+
+diff --git a/gemrb/CMakeLists.txt b/gemrb/CMakeLists.txt
+index 3f72b8b..a8fd74c 100644
+--- a/gemrb/CMakeLists.txt
++++ b/gemrb/CMakeLists.txt
+@@ -34,18 +34,17 @@ ELSE(WIN32)
+  IF(APPLE)
+ 	if (STATIC_LINK)
+ 		TARGET_LINK_LIBRARIES(gemrb
+-			  ${COCOA_LIBRARY_PATH} ${CMAKE_DL_LIBS} ${CMAKE_THREAD_LIBS_INIT}
++			  ${COCOA_LIBRARY_PATH}
+ 			 gemrb_core ${plugins}  -Wl,-all_load)
+ 	else (STATIC_LINK)
+ 		TARGET_LINK_LIBRARIES(gemrb gemrb_core
+-			  ${COCOA_LIBRARY_PATH} ${CMAKE_DL_LIBS} ${CMAKE_THREAD_LIBS_INIT})
++			  ${COCOA_LIBRARY_PATH})
+ 	endif (STATIC_LINK)
+  ELSE(APPLE)
+   if (STATIC_LINK)
+-	  TARGET_LINK_LIBRARIES(gemrb ${CMAKE_DL_LIBS} ${CMAKE_THREAD_LIBS_INIT}
+-		  -Wl,--whole-archive gemrb_core ${plugins} -Wl,--no-whole-archive)
++	  TARGET_LINK_LIBRARIES(gemrb -Wl,--whole-archive gemrb_core ${plugins} -Wl,--no-whole-archive)
+   else (STATIC_LINK)
+-	  TARGET_LINK_LIBRARIES(gemrb gemrb_core ${CMAKE_DL_LIBS} ${CMAKE_THREAD_LIBS_INIT})
++	  TARGET_LINK_LIBRARIES(gemrb gemrb_core)
+   endif (STATIC_LINK)
+  ENDIF(APPLE)
+ ENDIF(WIN32)
+diff --git a/gemrb/core/CMakeLists.txt b/gemrb/core/CMakeLists.txt
+index 11f8662..8356c3d 100644
+--- a/gemrb/core/CMakeLists.txt
++++ b/gemrb/core/CMakeLists.txt
+@@ -134,6 +134,10 @@ else (STATIC_LINK)
+ 	ENDIF(WIN32)
+ endif (STATIC_LINK)
+ 
++IF(NOT WIN32)
++	TARGET_LINK_LIBRARIES(gemrb_core ${CMAKE_DL_LIBS})
++ENDIF(NOT WIN32)
++
+ STRING(REGEX REPLACE "\\..*$" "" GEMRB_SOVERSION "${GEMRB_VERSION}")
+ SET_TARGET_PROPERTIES(gemrb_core PROPERTIES
+ 	COMPILE_DEFINITIONS

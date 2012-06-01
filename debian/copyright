@@ -32,7 +32,7 @@ License: LGPL-2.1+
 
 Files: gemrb/plugins/MVEPlayer/mvevideodec8.cpp
        gemrb/plugins/MVEPlayer/mvevideodec16.cpp
-Files: gemrb/plugins/MVEPlayer/mveaudiodec.cpp
+       gemrb/plugins/MVEPlayer/mveaudiodec.cpp
 Copyright: 2003        The FFmpeg project
            2003        Mike Melanson
            2006        Jens Granseuer <jensgr@gmx.net>
