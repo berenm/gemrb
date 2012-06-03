@@ -1,3 +1,10 @@
+gemrb (0.7.0-5) unstable; urgency=low
+
+  * Add icons and links using debhelper .links files.
+  * Add Baldur's Gate: ToSC and Baldur's Gate 2: ToB files.
+
+ -- Beren Minor <beren.minor+debian@gmail.com>  Sun, 03 Jun 2012 15:04:32 +0200
+
 gemrb (0.7.0-4) unstable; urgency=low
 
   * Stripping debug symbol out of binaries.

@@ -1,6 +1,9 @@
-usr/games/baldurs-gate-2
-debian/baldurs-gate-2.cfg etc/gemrb/
-usr/share/man/man6/baldurs-gate-2.6.gz
-debian/baldurs-gate-2.desktop usr/share/applications/
-usr/share/icons/hicolor/scalable/apps/baldurs-gate-2.svg
-usr/share/pixmaps/baldurs-gate-2.png
+debian/baldurs-gate-2.cfg       etc/gemrb/
+debian/baldurs-gate-2.desktop   usr/share/applications/
+debian/icons/baldurs-gate-2.svg usr/share/icons/hicolor/scalable/apps/
+debian/icons/baldurs-gate-2.png usr/share/pixmaps/
+
+debian/baldurs-gate-2-tob.cfg       etc/gemrb/
+debian/baldurs-gate-2-tob.desktop   usr/share/applications/
+debian/icons/baldurs-gate-2-tob.svg usr/share/icons/hicolor/scalable/apps/
+debian/icons/baldurs-gate-2-tob.png usr/share/pixmaps/
