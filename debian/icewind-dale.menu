@@ -1,2 +1,2 @@
-?package(gemrb-iwd):command="icewind-dale" needs="X11" section="Games/Adventure" title="Icewind Dale - GemRB"
-?package(gemrb-iwd):command="icewind-dale-how" needs="X11" section="Games/Adventure" title="Icewind Dale: Heart of Winter - GemRB"
+?package(gemrb-icewind-dale):command="icewind-dale" needs="X11" section="Games/Adventure" title="Icewind Dale - GemRB"
+?package(gemrb-icewind-dale):command="icewind-dale-how" needs="X11" section="Games/Adventure" title="Icewind Dale: Heart of Winter - GemRB"

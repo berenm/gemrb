@@ -1,1 +1,2 @@
-?package(gemrb-bg2):command="baldurs-gate-2" needs="X11" section="Games/Adventure" title="Baldur's Gate 2 - GemRB"
+?package(gemrb-baldurs-gate-2):command="baldurs-gate-2" needs="X11" section="Games/Adventure" title="Baldur's Gate 2 - GemRB"
+?package(gemrb-baldurs-gate-2):command="baldurs-gate-2-tob" needs="X11" section="Games/Adventure" title="Baldur's Gate 2: Throne of Bhaal - GemRB"

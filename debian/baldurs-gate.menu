@@ -1,1 +1,2 @@
-?package(gemrb-bg1):command="baldurs-gate" needs="X11" section="Games/Adventure" title="Baldur's Gate - GemRB"
+?package(gemrb-baldurs-gate):command="baldurs-gate" needs="X11" section="Games/Adventure" title="Baldur's Gate - GemRB"
+?package(gemrb-baldurs-gate):command="baldurs-gate-tosc" needs="X11" section="Games/Adventure" title="Baldur's Gate: Tales of the Sword Coast - GemRB"

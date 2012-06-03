@@ -1,1 +1,1 @@
-?package(gemrb-pst):command="planescape-torment" needs="X11" section="Games/Adventure" title="Planescape: Torment - GemRB"
+?package(gemrb-planescape-torment):command="planescape-torment" needs="X11" section="Games/Adventure" title="Planescape: Torment - GemRB"

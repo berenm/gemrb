@@ -1,0 +1,10 @@
+[Desktop Entry]
+Version=1.0
+Name=Baldur's Gate 2: Throne of Bhaal - GemRB
+GenericName=Baldur's Gate 2: Throne of Bhaal
+Comment=Baldur's Gate 2: Throne of Bhaal game running with GemRB
+Type=Application
+Icon=baldurs-gate-2-tob
+Terminal=true
+Exec=baldurs-gate-2-tob
+Categories=Game;RolePlaying;Emulator;
