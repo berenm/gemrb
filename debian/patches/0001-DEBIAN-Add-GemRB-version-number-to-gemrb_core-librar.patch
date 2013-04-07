@@ -7,10 +7,10 @@ Subject: DEBIAN: Add GemRB version number to gemrb_core library.
  1 file changed, 3 insertions(+)
 
 diff --git a/gemrb/core/CMakeLists.txt b/gemrb/core/CMakeLists.txt
-index 98d0c0e..11f8662 100644
+index d57fac2..44653b7 100644
 --- a/gemrb/core/CMakeLists.txt
 +++ b/gemrb/core/CMakeLists.txt
-@@ -134,9 +134,12 @@ else (STATIC_LINK)
+@@ -149,9 +149,12 @@ else (STATIC_LINK)
  	ENDIF(WIN32)
  endif (STATIC_LINK)
  

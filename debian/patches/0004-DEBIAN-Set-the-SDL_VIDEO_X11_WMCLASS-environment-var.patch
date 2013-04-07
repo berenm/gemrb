@@ -9,10 +9,10 @@ Subject: DEBIAN: Set the SDL_VIDEO_X11_WMCLASS environment variable with the
  1 file changed, 2 insertions(+)
 
 diff --git a/gemrb/GemRB.cpp b/gemrb/GemRB.cpp
-index 6079424..36c65c9 100644
+index 18a8b52..c7d9eaa 100644
 --- a/gemrb/GemRB.cpp
 +++ b/gemrb/GemRB.cpp
-@@ -64,6 +64,8 @@ static void appPutToForeground()
+@@ -54,6 +54,8 @@ static void GemRB::appPutToForeground()
  
  int main(int argc, char* argv[])
  {

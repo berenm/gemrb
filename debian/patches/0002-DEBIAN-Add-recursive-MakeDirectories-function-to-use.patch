@@ -10,23 +10,23 @@ Subject: DEBIAN: Add recursive MakeDirectories function to use with saved
  3 files changed, 27 insertions(+), 1 deletion(-)
 
 diff --git a/gemrb/core/SaveGameIterator.cpp b/gemrb/core/SaveGameIterator.cpp
-index a4dae9a..8b79b06 100644
+index 508cba0..2d1c29f 100644
 --- a/gemrb/core/SaveGameIterator.cpp
 +++ b/gemrb/core/SaveGameIterator.cpp
-@@ -277,7 +277,7 @@ bool SaveGameIterator::RescanSaveGames()
+@@ -279,7 +279,7 @@ bool SaveGameIterator::RescanSaveGames()
  	DirectoryIterator dir(Path);
  	// create the save game directory at first access
  	if (!dir) {
 -		if (!MakeDirectory(Path)) {
 +		if (!MakeDirectories(Path)) {
- 			printMessage("SaveGameIterator", "Unable to create save game directory '%s'", RED, Path);
+ 			Log(ERROR, "SaveGameIterator", "Unable to create save game directory '%s'", Path);
  			return false;
  		}
 diff --git a/gemrb/core/System/VFS.cpp b/gemrb/core/System/VFS.cpp
-index f275ae0..64687b7 100644
+index 4632345..662e5dc 100644
 --- a/gemrb/core/System/VFS.cpp
 +++ b/gemrb/core/System/VFS.cpp
-@@ -357,6 +357,31 @@ void ExtractFileFromPath(char *file, const char *full_path)
+@@ -361,6 +361,31 @@ void ExtractFileFromPath(char *file, const char *full_path)
  		strcpy(file, full_path);
  }
  
@@ -59,10 +59,10 @@ index f275ae0..64687b7 100644
  {
  #ifdef WIN32
 diff --git a/gemrb/core/System/VFS.h b/gemrb/core/System/VFS.h
-index 94e83d7..4e6b3bd 100644
+index 6011cb9..9e75679 100644
 --- a/gemrb/core/System/VFS.h
 +++ b/gemrb/core/System/VFS.h
-@@ -109,6 +109,7 @@ GEM_EXPORT void ExtractFileFromPath(char *file, const char *full_path);
+@@ -111,6 +111,7 @@ GEM_EXPORT void ExtractFileFromPath(char *file, const char *full_path);
  
  GEM_EXPORT char* PathAppend (char* target, const char* name);
  

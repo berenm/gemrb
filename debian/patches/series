@@ -1,5 +1,4 @@
 0001-DEBIAN-Add-GemRB-version-number-to-gemrb_core-librar.patch
 0002-DEBIAN-Add-recursive-MakeDirectories-function-to-use.patch
-0003-DEBIAN-Fix-undefined-reference-to-unlink-by-includin.patch
-0004-DEBIAN-Remove-unnecessary-links-against-various-libr.patch
-0005-DEBIAN-Set-the-SDL_VIDEO_X11_WMCLASS-environment-var.patch
+0003-DEBIAN-Remove-unnecessary-links-against-various-libr.patch
+0004-DEBIAN-Set-the-SDL_VIDEO_X11_WMCLASS-environment-var.patch
