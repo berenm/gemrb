@@ -1,0 +1,25 @@
+From: Jaka Kranjc <lynxlupodian@users.sourceforge.net>
+Date: Sun, 26 May 2013 15:07:32 +0200
+Subject: DEBIAN: Backport chmod fix, related to HOME folder rights
+ modifications.
+
+MakeDirectory: removed dubious chmodding
+
+also fixes [3612689] gemrb changes $HOME directory rights
+---
+ gemrb/core/System/VFS.cpp |    2 --
+ 1 file changed, 2 deletions(-)
+
+diff --git a/gemrb/core/System/VFS.cpp b/gemrb/core/System/VFS.cpp
+index 3e68995..9c2f636 100644
+--- a/gemrb/core/System/VFS.cpp
++++ b/gemrb/core/System/VFS.cpp
+@@ -428,8 +428,6 @@ bool MakeDirectory(const char* path)
+ 			return false;
+ 		}
+ 	}
+-	// Ignore errors from chmod
+-	chmod(path, S_IREAD|S_IWRITE|S_IEXEC);
+ 	return true;
+ #ifdef WIN32
+ #undef mkdir

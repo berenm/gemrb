@@ -8,11 +8,11 @@ Subject: DEBIAN: Remove unnecessary links against various libraries.
  2 files changed, 8 insertions(+), 5 deletions(-)
 
 diff --git a/gemrb/CMakeLists.txt b/gemrb/CMakeLists.txt
-index ff9161b..cd30105 100644
+index 1739f44..fbb897d 100644
 --- a/gemrb/CMakeLists.txt
 +++ b/gemrb/CMakeLists.txt
-@@ -32,18 +32,17 @@ ELSE(WIN32)
-  IF(APPLE)
+@@ -81,18 +81,17 @@ ELSE(WIN32)
+ 
  	if (STATIC_LINK)
  		TARGET_LINK_LIBRARIES(gemrb
 -			  ${COCOA_LIBRARY_PATH} ${CMAKE_DL_LIBS} ${CMAKE_THREAD_LIBS_INIT}
@@ -35,10 +35,10 @@ index ff9161b..cd30105 100644
   ENDIF(APPLE)
  ENDIF(WIN32)
 diff --git a/gemrb/core/CMakeLists.txt b/gemrb/core/CMakeLists.txt
-index 44653b7..e4f603c 100644
+index 81dbdc2..33399d1 100644
 --- a/gemrb/core/CMakeLists.txt
 +++ b/gemrb/core/CMakeLists.txt
-@@ -149,6 +149,10 @@ else (STATIC_LINK)
+@@ -151,6 +151,10 @@ else (STATIC_LINK)
  	ENDIF(WIN32)
  endif (STATIC_LINK)
  

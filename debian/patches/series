@@ -1,4 +1,3 @@
-0001-DEBIAN-Add-GemRB-version-number-to-gemrb_core-librar.patch
-0002-DEBIAN-Add-recursive-MakeDirectories-function-to-use.patch
+0001-DEBIAN-Backport-chmod-fix-related-to-HOME-folder-rig.patch
+0002-DEBIAN-Add-GemRB-version-number-to-gemrb_core-librar.patch
 0003-DEBIAN-Remove-unnecessary-links-against-various-libr.patch
-0004-DEBIAN-Set-the-SDL_VIDEO_X11_WMCLASS-environment-var.patch
