@@ -1,3 +1,12 @@
+gemrb (0.8.0-2) unstable; urgency=low
+
+  [ Beren Minor ]
+  * Add missing /usr/share/gemrb/unhardcoded to package.
+  * Add libvlc and libvlccore build dependencies for the VLC plugin.
+  * Upgrade Standards-Version to 3.9.4.
+
+ -- Beren Minor <beren.minor+debian@gmail.com>  Wed, 03 Jul 2013 11:26:14 +0200
+
 gemrb (0.8.0-1) unstable; urgency=low
   [ GemRB v0.8.0 ]
   * New features:

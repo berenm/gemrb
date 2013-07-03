@@ -1,3 +1,5 @@
 usr/share/gemrb/GUIScripts/iwd/
 usr/share/gemrb/override/iwd/
 usr/share/gemrb/override/how/
+usr/share/gemrb/unhardcoded/iwd/
+usr/share/gemrb/unhardcoded/how/

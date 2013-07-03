@@ -2,8 +2,8 @@ Source: gemrb
 Section: games
 Priority: extra
 Maintainer: Beren Minor <beren.minor+debian@gmail.com>
-Build-Depends: debhelper (>= 9), cmake, python-dev, libsdl1.2-dev, libsdl-ttf2.0-dev, libsdl-mixer1.2-dev, libz-dev, libopenal-dev, libpng-dev, libogg-dev, libvorbis-dev
-Standards-Version: 3.9.3
+Build-Depends: debhelper (>= 9), cmake, python-dev, libsdl1.2-dev, libsdl-ttf2.0-dev, libsdl-mixer1.2-dev, libz-dev, libopenal-dev, libpng-dev, libogg-dev, libvorbis-dev, libvlc-dev, libvlccore-dev
+Standards-Version: 3.9.4
 Homepage: http://www.gemrb.org/
 Vcs-Git: git://github.com/berenm/gemrb.git
 Vcs-Browser: https://github.com/berenm/gemrb
