@@ -1,4 +1,2 @@
 debian/planescape-torment.cfg       etc/gemrb/
 debian/planescape-torment.desktop   usr/share/applications/
-debian/icons/planescape-torment.svg usr/share/icons/hicolor/scalable/apps/
-debian/icons/planescape-torment.png usr/share/pixmaps/

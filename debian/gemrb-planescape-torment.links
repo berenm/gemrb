@@ -1,2 +1,4 @@
-usr/games/gemrb               usr/games/planescape-torment
-usr/share/man/man6/gemrb.6.gz usr/share/man/man6/planescape-torment.6.gz
+usr/games/gemrb                                  usr/games/planescape-torment
+usr/share/man/man6/gemrb.6.gz                    usr/share/man/man6/planescape-torment.6.gz
+usr/share/icons/hicolor/scalable/apps/gemrb.svg  usr/share/icons/hicolor/scalable/apps/planescape-torment.svg
+usr/share/pixmaps/gemrb.png                      usr/share/pixmaps/planescape-torment.png

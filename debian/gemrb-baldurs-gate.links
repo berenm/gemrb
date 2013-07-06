@@ -1,5 +1,9 @@
-usr/games/gemrb               usr/games/baldurs-gate
-usr/share/man/man6/gemrb.6.gz usr/share/man/man6/baldurs-gate.6.gz
+usr/games/gemrb                                  usr/games/baldurs-gate
+usr/share/man/man6/gemrb.6.gz                    usr/share/man/man6/baldurs-gate.6.gz
+usr/share/icons/hicolor/scalable/apps/gemrb.svg  usr/share/icons/hicolor/scalable/apps/baldurs-gate.svg
+usr/share/pixmaps/gemrb.png                      usr/share/pixmaps/baldurs-gate.png
 
-usr/games/baldurs-gate               usr/games/baldurs-gate-tosc
-usr/share/man/man6/baldurs-gate.6.gz usr/share/man/man6/baldurs-gate-tosc.6.gz
+usr/games/baldurs-gate                           usr/games/baldurs-gate-tosc
+usr/share/man/man6/baldurs-gate.6.gz             usr/share/man/man6/baldurs-gate-tosc.6.gz
+usr/share/icons/hicolor/scalable/apps/gemrb.svg  usr/share/icons/hicolor/scalable/apps/baldurs-gate-tosc.svg
+usr/share/pixmaps/gemrb.png                      usr/share/pixmaps/baldurs-gate-tosc.png
