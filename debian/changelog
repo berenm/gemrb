@@ -1,3 +1,10 @@
+gemrb (0.8.0-3) unstable; urgency=low
+
+  * Update broken watch file, GitHub URL pattern has been updated.
+  * Fix lintian warnings for the desktop files by adding some keywords.
+
+ -- Beren Minor <beren.minor+debian@gmail.com>  Sat, 06 Jul 2013 20:50:57 +0200
+
 gemrb (0.8.0-2) unstable; urgency=low
 
   [ Beren Minor ]
